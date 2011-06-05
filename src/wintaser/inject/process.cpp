@@ -14,7 +14,6 @@
 using namespace std;
 
 Process::Process(DWORD processID, HANDLE hProcess) :
-	//hThread_(INVALID_HANDLE_VALUE),
 	hProcess_(hProcess),
 	processID_(processID),
 	pebAddr_(0)
@@ -34,41 +33,6 @@ Process::Process(DWORD processID, HANDLE hProcess) :
 		throw ProcessHandleException(ss.str());
 	}
 }
-
-//Process::Process(const Process& instance)
-//{
-//	this->hProcess_ = INVALID_HANDLE_VALUE;
-//	//if (!duplicateHandle(instance.hProcess_, &this->hProcess_)) throw ProcessHandleException("Failed to duplicate handle!");
-//  this->hProcess_ = instance.hProcess_;
-//	this->processID_ = instance.processID_;
-//	this->pebAddr_ = instance.pebAddr_;
-//}
-//
-//Process& Process::operator=(const Process& instance)
-//{
-//	//if (!duplicateHandle(instance.hProcess_, &this->hProcess_)) throw ProcessHandleException("Failed to duplicate handle!");
-//  this->hProcess_ = instance.hProcess_;
-//	this->processID_ = instance.processID_;
-//	this->pebAddr_ = instance.pebAddr_;
-//	return *this;
-//}
-
-//Process::~Process()
-//{
-//	//if (hProcess_ != INVALID_HANDLE_VALUE) CloseHandle(hProcess_);
-//}
-
-//bool Process::duplicateHandle(HANDLE hSrc, HANDLE* hDest)
-//{
-//	if (hSrc == INVALID_HANDLE_VALUE) return true;
-//	return (DuplicateHandle(GetCurrentProcess(), 
-//						   hSrc, 
-//						   GetCurrentProcess(), 
-//						   hDest,
-//						   0,
-//						   FALSE,
-//						   DUPLICATE_SAME_ACCESS) == TRUE ? true : false);
-//}
 
 void Process::writeMemory(LPVOID address, LPCVOID data, DWORD size) const
 {
