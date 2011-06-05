@@ -4003,6 +4003,10 @@ void FrameBoundary(const char* frameInfo, int threadId)
 			frameCountUpdateFreq = framerate*8;
 		UpdateFrameCountDisplay(frameCount, frameCountUpdateFreq);
 
+		// temp workaround for games that currently spray pixels onscreen when they boot up (cave story)
+		if(frameCount == 1)
+			InvalidateRect(hWnd, NULL, TRUE);
+
 		HandleAviSplitRequests();
 
 		if(frameCaptureInfoType != CAPTUREINFO_TYPE_NONE_SUBSEQUENT)
@@ -7316,6 +7320,35 @@ void PrepareForExit()
 
 HMENU MainMenu = NULL;
 
+
+// this is to get rid of dialog box beeps when pressing hotkeys,
+// and also to make the edit boxes a little nicer to use
+bool PreTranslateMessage(MSG& msg)
+{
+	if(IsHotkeyPress())
+		return false;
+
+	if(msg.message == WM_KEYDOWN)
+	{
+		char text[5];
+		if(GetClassNameA(msg.hwnd, text, 5) && !_stricmp(text, "Edit"))
+		{
+			if(msg.wParam == 'A' && (GetKeyState(VK_CONTROL)&0x8000)) // select all
+			{
+				SendMessage(msg.hwnd,EM_SETSEL,0,-1);
+				return false;
+			}
+			if(msg.wParam == VK_RETURN || msg.wParam == VK_ESCAPE)
+			{
+				SetFocus(NULL);
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
 //unsigned char unpackedData [256];
 //unsigned char packedData [32];
 //void bitPack()
@@ -7392,21 +7425,36 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 //	atexit(PrepareForExit);
 
 	// Main message loop:
-	BOOL bRet;
-	while((bRet = GetMessage(&msg, NULL, 0, 0)) != 0)
+	//BOOL bRet;
+	//while((bRet = GetMessage(&msg, NULL, 0, 0)) != 0)
+	while(true)
 	{
-		if(bRet == -1)
-		{
-			debugprintf("main loop GetMessage error! 0x%X.\n", GetLastError());
-			break;
-		}
+		//if(bRet == -1)
+		//{
+		//	debugprintf("main loop GetMessage error! 0x%X.\n", GetLastError());
+		//	break;
+		//}
 
-		//if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg)) 
+		//DWORD ret = MsgWaitForMultipleObjects(0, NULL, FALSE, started ? 1000 : 30, QS_ALLINPUT);
+
+		if(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
+			//if(!IsDialogMessage(hWnd, &msg))
+			//&& !TranslateAccelerator(msg.hwnd, hAccelTable, &msg)) 
+			{
+				if(PreTranslateMessage(msg))
+					TranslateMessage(&msg);
+				DispatchMessage(&msg);
+			}
+
+			if(msg.message == WM_QUIT)
+				break;
 		}
-		//Sleep(1);
+		else
+		{
+			//Sleep(started ? 1000 : 30);
+			MsgWaitForMultipleObjects(0, NULL, FALSE, started ? 1000 : 30, QS_ALLINPUT);
+		}
 
 		//if(!debuggerThread && (GetAsyncKeyState('G') & 0x8000))
 		//{
@@ -7419,12 +7467,12 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			CheckHotkeys(-1, /*false*/true); // let's count "before any frame" as framesynced as far as hotkeys
 		}
 
-		// temp hack
-		if((GetAsyncKeyState('F') & 0x8000))
-		{
-			UpdateGeneralInfoDisplay();
-		}
-
+		//// temp hack
+		//if((GetAsyncKeyState('F') & 0x8000))
+		//{
+		//	UpdateGeneralInfoDisplay();
+		//}
+#if 0 // TODO: move to a hotkey. disabled for now.
 		// temp hack so I can get the callstack for diagnosing game freezes or slowdown
 		if((GetAsyncKeyState('T') & 0x8000))
 		{
@@ -7476,6 +7524,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			if(entered)
 				LeaveCriticalSection(&g_processMemCS);
 		}
+#endif
 		//// temp hack for testing sync stability in the face of unpredictable windows messages
 		//if((GetAsyncKeyState('Y') & 0x8000))
 		//{
@@ -7692,6 +7741,7 @@ void SplitToValidPath(const char* initialPath, const char* defaultDir, char* fil
 		memmove(filename, slash, 1+strlen(slash));
 }
 
+
 BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
     BOOL rv = TRUE;  
@@ -7796,42 +7846,48 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			PostQuitMessage(0);
             break;
 
-		case WM_LBUTTONUP:
-			if(started && !finished)
-			{
-				HWND curHWnd = GetForegroundWindow();
-				if(curHWnd == hWnd)
-				{
-					//if(gameHWnds.find(curHWnd) == gameHWnds.end())
-					{
-						if(!gameHWnds.empty())
-						{
-							std::set<HWND>::iterator iter;
-							for(iter = gameHWnds.begin(); iter != gameHWnds.end();)
-							{
-								HWND gamehwnd = *iter;
-								DWORD style = (DWORD)GetWindowLong(gamehwnd, GWL_STYLE);
-								iter++;
-								if((style & (WS_VISIBLE|WS_CAPTION)) == (WS_VISIBLE|WS_CAPTION) || iter == gameHWnds.end())
-								{
-									// check to see if the windows are overlapping.
-									// if they are, then auto-focusing the game window would be too annoying
-									// unless it's already set as topmost.
-									RECT rect1, rect2, rectIntersect;
-									GetWindowRect(hWnd, &rect1);
-									GetWindowRect(gamehwnd, &rect2);
-									if(!IntersectRect(&rectIntersect, &rect1, &rect2) || (windowActivateFlags & 2))
-									{
-										SetForegroundWindow(gamehwnd);
-									}
-									break;
-								}
-							}
-						}
-					}
-				}
-			}
-			break;
+
+		//case WM_LBUTTONUP: // auto-switch to game window on left click on unimportant place
+		//	if(started && !finished)
+		//	{
+		//		HWND curHWnd = GetForegroundWindow();
+		//		if(curHWnd == hWnd)
+		//		{
+		//			//if(gameHWnds.find(curHWnd) == gameHWnds.end())
+		//			{
+		//				if(!gameHWnds.empty())
+		//				{
+		//					std::set<HWND>::iterator iter;
+		//					for(iter = gameHWnds.begin(); iter != gameHWnds.end();)
+		//					{
+		//						HWND gamehwnd = *iter;
+		//						DWORD style = (DWORD)GetWindowLong(gamehwnd, GWL_STYLE);
+		//						iter++;
+		//						if((style & (WS_VISIBLE|WS_CAPTION)) == (WS_VISIBLE|WS_CAPTION) || iter == gameHWnds.end())
+		//						{
+		//							// check to see if the windows are overlapping.
+		//							// if they are, then auto-focusing the game window would be too annoying
+		//							// unless it's already set as topmost.
+		//							RECT rect1, rect2, rectIntersect;
+		//							GetWindowRect(hWnd, &rect1);
+		//							GetWindowRect(gamehwnd, &rect2);
+		//							if(!IntersectRect(&rectIntersect, &rect1, &rect2) || (windowActivateFlags & 2))
+		//							{
+		//								SetForegroundWindow(gamehwnd);
+		//							}
+		//							break;
+		//						}
+		//					}
+		//				}
+		//			}
+		//		}
+		//	}
+		//	break;
+
+		//case WM_KEYDOWN:
+		//case WM_KEYUP:
+		//case WM_CHAR:
+		//	return 0;
 
 		case WM_COMMAND:
 			{
@@ -8535,7 +8591,8 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 							int count = 0;
 							while(count < 4 && GetMessage(&msg, NULL, 0, 0))
 							{
-								TranslateMessage(&msg);
+								if(PreTranslateMessage(msg))
+									TranslateMessage(&msg);
 								DispatchMessage(&msg);
 								count++;
 							}

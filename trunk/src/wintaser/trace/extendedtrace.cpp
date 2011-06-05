@@ -124,17 +124,6 @@ void LoadDbghelpDll()
 // Implement Win32 TRACE(...)
 int debugprintf(const char * fmt, ...);
 #define OutputDebugStringFormat debugprintf
-//void OutputDebugStringFormat( LPCTSTR lpszFormat, ... )
-//{
-//	TCHAR    lpszBuffer[BUFFERSIZE];
-//	va_list  fmtList;
-//
-//	va_start( fmtList, lpszFormat );
-//	_vstprintf( lpszBuffer, lpszFormat, fmtList );
-//	va_end( fmtList );
-//
-//   ::OutputDebugString( lpszBuffer );
-//}
 #endif // OutputDebugStringFormat
 
 // Unicode safe char* -> TCHAR* conversion
@@ -241,19 +230,7 @@ void LoadModuleSymbols(HANDLE hProcess, PSTR name)
 #ifdef ASSUME_SINGLE_HPROCESS
 	hProcess = s_hProcess;
 #endif
-	//PSTR modulename = 0;
-	//char modulenamebuf [MAX_PATH+1];
-	//char* slash = max(strrchr(name, '\\'), strrchr(name, '/'));
-	//char* dot = strrchr(name, '.');
-	//if(slash<dot)
-	//{
-	//	modulename = modulenamebuf;
-	//	strcpy(modulenamebuf, name);
-	//	if(slash)
-	//		modulename += slash+1-name;
-	//	if(dot)
-	//		modulenamebuf[dot-name] = 0;
-	//}
+
 	DWORD dwBaseAddress = pSymLoadModule ? pSymLoadModule( hProcess, 0, name, 0, 0, 0 ) : NULL;
 	IMAGEHLP_MODULE im = { sizeof(IMAGEHLP_MODULE) };
 	if(pSymGetModuleInfo)
@@ -357,8 +334,6 @@ BOOL InitSymInfo( PCSTR lpszInitialSymbolPath, HANDLE hProcess )
 	//symOptions |= SYMOPT_LOAD_LINES; 
 	//symOptions &= ~SYMOPT_UNDNAME;
 	//pSymSetOptions( symOptions );
-
-//	BOOL rv = pSymInitialize( hProcess, lpszSymbolPath, TRUE);
 
 	BOOL rv = pSymInitialize( hProcess, lpszSymbolPath, TRUE);
 	if(!rv) // pSymInitialize fails on Vista if the last parameter is TRUE, so try again:
@@ -835,20 +810,6 @@ BOOL GetFunctionInfoFromAddresses( ULONG fnAddress, ULONG stackAddress, LPTSTR l
 		pOutString += sprintf(pOutString, unsure ? ")?" : ")");
 	}
 
-	//char stack [4*4] = {0};
-	//DWORD* s = (DWORD*)stack;
-	//pOutString += sprintf(pOutString, " ?(0x%08X, 0x%08X, 0x%08X, 0x%08X)", s[0], s[1], s[2], s[3]);
-
-
-	//WCHAR* typeName = NULL;
-	//if ( pSymGetTypeInfo( hProcess, pSym->ModBase, pSym->TypeIndex, TI_GET_SYMNAME, &typeName ) && typeName)
-	//{
-	//	pOutString += sprintf(pOutString, " %S", typeName);
-	//	//sprintf( lpszSymbol + strlen(lpszSymbol), _T("=0x%08X,"), *((ULONG*)(stackAddress) + 2 + index) );
-	//	LocalFree( typeName ); 
-	//}
-
-
 	GlobalFree( pSym );
 
 	return ret;
@@ -935,15 +896,6 @@ void StackTraceOfDepth( HANDLE hThread, LPCTSTR lpszMessage, int minDepth, int m
 	TCHAR          symInfo[BUFFERSIZE] = _T("?");
 	TCHAR          srcInfo[BUFFERSIZE] = _T("?");
 
- //  // If it's not this thread, let's suspend it, and resume it at the end
-	//if ( hThread != GetCurrentThread() )
-	//	if ( SuspendThread( hThread ) == -1 )
-	//	{
-	//	   // whaaat ?!
-	//	   OutputDebugStringFormat( _T("Call stack info(thread=0x%X) failed.\n") );
-	//		return;
-	//	}
-
 	::ZeroMemory( &context, sizeof(context) );
 	context.ContextFlags = CONTEXT_FULL;
 
@@ -980,7 +932,6 @@ void StackTraceOfDepth( HANDLE hThread, LPCTSTR lpszMessage, int minDepth, int m
 			pSymGetModuleBase,
 			NULL);
 
-//#pragma message("FIXMEEE")
 //		debugprintf("AddrPC=0x%X, AddrReturn=0x%X, AddrFrame=0x%X, AddrStack=0x%X, FuncTableEntry=0x%X\n",
 //			callStack.AddrPC.Offset,
 //			callStack.AddrReturn.Offset,
@@ -1005,9 +956,6 @@ void StackTraceOfDepth( HANDLE hThread, LPCTSTR lpszMessage, int minDepth, int m
 
 		OutputDebugStringFormat( _T("     %s : %s\n"), srcInfo, symInfo );
 	}
-
-	//if ( hThread != GetCurrentThread() )
-	//	ResumeThread( hThread );
 }
 
 void StackTrace( HANDLE hThread, LPCTSTR lpszMessage, HANDLE hProcess )

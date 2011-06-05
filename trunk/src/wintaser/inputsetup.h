@@ -5,6 +5,7 @@ void Build_Main_Menu(HMENU& menu, HWND hWnd);
 int Init_Input(HINSTANCE hInst, HWND hWnd, bool isConfigInput=false);
 void End_Input(bool isConfigInput=false);
 void Update_Input(HWND hWnd, bool frameSynced, bool allowExecute, bool isConfigInput, bool isHotkeys);
+bool IsHotkeyPress(bool isConfigInput=false);
 LRESULT CALLBACK HotkeysProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK InputsProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 const char* GetVirtualKeyName(int key);

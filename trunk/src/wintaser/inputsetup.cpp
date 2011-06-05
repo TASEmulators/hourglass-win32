@@ -3,6 +3,7 @@
 
 // inputsetup.cpp
 // much of this comes from Gens
+// ...at least the general way things work. there have of course been many changes
 
 //#pragma optimize("",off)
 //#define WIN32_LEAN_AND_MEAN
@@ -59,6 +60,7 @@ struct InputState
 
 InputState mainInputState = {};
 InputState configInputState = {};
+InputState tempInputState = {};
 
 unsigned char StateSelectCfg = 5;
 //bool BackgroundInput = true;
@@ -338,51 +340,6 @@ void UpdateReverseLookup(bool isHotkeys)
 		if(buttons[i].eventID && (buttons[i].diKey || buttons[i].virtKey || buttons[i].modifiers || !reverseEventLookup[buttons[i].eventID]))
 			reverseEventLookup[buttons[i].eventID] = i+1;
 }
-
-//void BuildAccelerators(HACCEL& hAccelTable)
-//{
-//	if(hAccelTable)
-//		DestroyAcceleratorTable(hAccelTable);
-//
-//	std::vector<ACCEL> accels;
-//	int numInputButtons = GetNumButtons();
-//	for(int i=0; i<numInputButtons; i++)
-//	{
-//		InputButton& button = buttons[i];
-//		if(button.ShouldUseAccelerator())
-//		{
-//			// button can be expressed as a Windows accelerator
-//			ACCEL accel;
-//
-//			accel.cmd = button.eventID;
-//			accel.key = button.virtKey;
-//			accel.fVirt = FVIRTKEY | FNOINVERT;
-//			if(button.modifiers & MOD_ALT)
-//				accel.fVirt |= FALT;
-//			if(button.modifiers & MOD_SHIFT)
-//				accel.fVirt |= FSHIFT;
-//			if(button.modifiers & MOD_CONTROL)
-//				accel.fVirt |= FCONTROL;
-//
-//			accels.push_back(accel);
-//		}
-//		else
-//		{
-//			// button can't be expressed as a Windows accelerator
-//			// handle it in Update_Input()
-//		}
-//	}
-//
-//	reverseEventLookup.clear();
-//	for(int i=0; i<numInputButtons; i++)
-//		if(buttons[i].eventID && (buttons[i].diKey || buttons[i].virtKey || buttons[i].modifiers || !reverseEventLookup[buttons[i].eventID]))
-//			reverseEventLookup[buttons[i].eventID] = i+1;
-//
-//	if(!accels.empty())
-//		hAccelTable = CreateAcceleratorTable(&accels[0], accels.size());
-//	else
-//		hAccelTable = NULL;
-//}
 
 
 static void SetButtonToOldDIKey(InputButton& button, int key)
@@ -987,9 +944,6 @@ void ModifyHotkeyFromListbox(HWND listbox, WORD command, HWND statusText, HWND p
 
 		InputButton& button = buttons[i];
 
-//		if(button.ShouldUseAccelerator())
-//			rebuildAccelerators = true;
-
 		switch(command)
 		{
 			case IDC_REASSIGNKEY:
@@ -1047,9 +1001,6 @@ void ModifyHotkeyFromListbox(HWND listbox, WORD command, HWND statusText, HWND p
 		}
 		SetFocus(listbox);
 
-//		if(button.ShouldUseAccelerator())
-//			rebuildAccelerators = true;
-
 		char str [1024];
 		strcpy(str, button.description);
 		AddHotkeySuffix(str, button);
@@ -1058,12 +1009,6 @@ void ModifyHotkeyFromListbox(HWND listbox, WORD command, HWND statusText, HWND p
 		SendMessage(listbox, LB_INSERTSTRING, i, (LPARAM) str); 
 		SendMessage(listbox, LB_SETSEL, (WPARAM) TRUE, (LPARAM) i); 
 	}
-
-	//if(rebuildAccelerators)
-	//{
-	//	extern HACCEL hAccelTable;
-	//	BuildAccelerators(hAccelTable);
-	//}
 
 	UpdateReverseLookup(isHotkeys);
 
@@ -1127,7 +1072,7 @@ BOOL CALLBACK InitJoystick(LPCDIDEVICEINSTANCE lpDIIJoy, LPVOID pvRef)
 	inputState.Joy_ID[inputState.Nb_Joys] = NULL;
 
 	rval = inputState.lpDI->CreateDevice(lpDIIJoy->guidInstance, &lpDIJoy, NULL);
-	if (rval != DI_OK)
+	if(rval != DI_OK)
 	{
 		MessageBox(HWnd, "IDirectInput::CreateDevice FAILED", "erreur joystick", MB_OK);
 		return(DIENUM_CONTINUE);
@@ -1135,7 +1080,7 @@ BOOL CALLBACK InitJoystick(LPCDIDEVICEINSTANCE lpDIIJoy, LPVOID pvRef)
 
 	rval = lpDIJoy->QueryInterface(IID_IDirectInputDevice2, (void **)&inputState.Joy_ID[inputState.Nb_Joys]);
 	lpDIJoy->Release();
-	if (rval != DI_OK)
+	if(rval != DI_OK)
 	{
 		MessageBox(HWnd, "IDirectInputDevice2::QueryInterface FAILED", "erreur joystick", MB_OK);
 	    inputState.Joy_ID[inputState.Nb_Joys] = NULL;
@@ -1143,7 +1088,7 @@ BOOL CALLBACK InitJoystick(LPCDIDEVICEINSTANCE lpDIIJoy, LPVOID pvRef)
 	}
 
 	rval = inputState.Joy_ID[inputState.Nb_Joys]->SetDataFormat(&c_dfDIJoystick);
-	if (rval != DI_OK)
+	if(rval != DI_OK)
 	{
 		MessageBox(HWnd, "IDirectInputDevice::SetDataFormat FAILED", "erreur joystick", MB_OK);
 		inputState.Joy_ID[inputState.Nb_Joys]->Release();
@@ -1153,7 +1098,7 @@ BOOL CALLBACK InitJoystick(LPCDIDEVICEINSTANCE lpDIIJoy, LPVOID pvRef)
 
 	rval = inputState.Joy_ID[inputState.Nb_Joys]->SetCooperativeLevel(HWnd, DISCL_NONEXCLUSIVE | (/*BackgroundInput*/true?DISCL_BACKGROUND:DISCL_FOREGROUND));
 
-	if (rval != DI_OK)
+	if(rval != DI_OK)
 	{ 
 		MessageBox(HWnd, "IDirectInputDevice::SetCooperativeLevel FAILED", "erreur joystick", MB_OK);
 		inputState.Joy_ID[inputState.Nb_Joys]->Release();
@@ -1209,7 +1154,7 @@ int Init_Input(HINSTANCE hInst, HWND hWnd, bool isConfigInput)
 	StoreDefaultInputButtons();
 
 	rval = DirectInputCreate(hInst, DIRECTINPUT_VERSION, &inputState.lpDI, NULL);
-	if (rval != DI_OK)
+	if(rval != DI_OK)
 	{
 		MessageBox(hWnd, "DirectInput failed... You must have at least DirectX 5", "Error", MB_OK);
 		return 0;
@@ -1220,19 +1165,19 @@ int Init_Input(HINSTANCE hInst, HWND hWnd, bool isConfigInput)
 	for(i = 0; i < MAX_JOYS; i++) inputState.Joy_ID[i] = NULL;
 
 	rval = inputState.lpDI->EnumDevices(DIDEVTYPE_JOYSTICK, &InitJoystick, pInputState, DIEDFL_ATTACHEDONLY);
-	if (rval != DI_OK) return 0;
+	if(rval != DI_OK) return 0;
 
 //	rval = inputState.lpDI->CreateDevice(GUID_SysMouse, &inputState.lpDIDMouse, NULL);
 	rval = inputState.lpDI->CreateDevice(GUID_SysKeyboard, &inputState.lpDIDKeyboard, NULL);
-	if (rval != DI_OK) return 0;
+	if(rval != DI_OK) return 0;
 
 //	rval = inputState.lpDIDMouse->SetCooperativeLevel(hWnd, DISCL_EXCLUSIVE | DISCL_FOREGROUND);
 	rval = inputState.lpDIDKeyboard->SetCooperativeLevel(hWnd, DISCL_NONEXCLUSIVE | (/*BackgroundInput*/true?DISCL_BACKGROUND:DISCL_FOREGROUND));
-	if (rval != DI_OK) return 0;
+	if(rval != DI_OK) return 0;
 
 //	rval = inputState.lpDIDMouse->SetDataFormat(&c_dfDIMouse);
 	rval = inputState.lpDIDKeyboard->SetDataFormat(&c_dfDIKeyboard);
-	if (rval != DI_OK) return 0;
+	if(rval != DI_OK) return 0;
 
 //	rval = inputState.lpDIDMouse->Acquire();
 	for(i = 0; i < 10; i++)
@@ -1263,29 +1208,23 @@ void Update_Input(HWND HWnd, bool frameSynced, bool allowExecute, bool isConfigI
 	InputState& inputState = *pInputState;
 
 //	DIMOUSESTATE MouseState;
-	HRESULT rval;
-	int i;
+	HRESULT rval = inputState.lpDIDKeyboard->GetDeviceState(256, &inputState.Keys);
 
-	rval = inputState.lpDIDKeyboard->GetDeviceState(256, &inputState.Keys);
-
-	if ((rval == DIERR_INPUTLOST) | (rval == DIERR_NOTACQUIRED))
+	if((rval == DIERR_INPUTLOST) | (rval == DIERR_NOTACQUIRED))
 	{
 		Restore_Input(inputState);
-
 		rval = inputState.lpDIDKeyboard->GetDeviceState(256, &inputState.Keys);
-		if ((rval == DIERR_INPUTLOST) | (rval == DIERR_NOTACQUIRED))
-		{
+		if((rval == DIERR_INPUTLOST) | (rval == DIERR_NOTACQUIRED))
 			memset(inputState.Keys, 0, sizeof(inputState.Keys));
-		}
 	}
 
-	for (i = 0; i < inputState.Nb_Joys; i++)
+	for(int i = 0; i < inputState.Nb_Joys; i++)
 	{
-		if (inputState.Joy_ID[i])
+		if(inputState.Joy_ID[i])
 		{
 			inputState.Joy_ID[i]->Poll();
 			rval = inputState.Joy_ID[i]->GetDeviceState(sizeof(inputState.Joy_State[i]), &inputState.Joy_State[i]);
-			if (rval != DI_OK) inputState.Joy_ID[i]->Acquire();
+			if(rval != DI_OK) inputState.Joy_ID[i]->Acquire();
 		}
 	}
 
@@ -1323,21 +1262,24 @@ void Update_Input(HWND HWnd, bool frameSynced, bool allowExecute, bool isConfigI
 		{
 			bool pressed2 = button.virtKey ? !!(GetAsyncKeyState(button.virtKey) & 0x8000) : true;
 
-			if(isHotkeys)
+			if(pressed2)
 			{
-				// require exactly the same modifiers
-				pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
-				pressed2 &= !(button.modifiers & MOD_SHIFT) == !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
-				pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
-				pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
-			}
-			else
-			{
-				// require the button's modifiers but allow extra ones if also held (in case the extra modifier is being used as a separate button/action)
-				if((button.modifiers & MOD_CONTROL) && !(GetAsyncKeyState(VK_CONTROL) & 0x8000)) pressed2 = false;
-				if((button.modifiers & MOD_SHIFT) && !(GetAsyncKeyState(MOD_SHIFT) & 0x8000)) pressed2 = false;
-				if((button.modifiers & MOD_ALT) && !(GetAsyncKeyState(MOD_ALT) & 0x8000)) pressed2 = false;
-				if((button.modifiers & MOD_WIN) && !(GetAsyncKeyState(MOD_WIN) & 0x8000)) pressed2 = false;
+				if(isHotkeys)
+				{
+					// require exactly the same modifiers
+					pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
+					pressed2 &= !(button.modifiers & MOD_SHIFT) == !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
+					pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
+					pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
+				}
+				else
+				{
+					// require the button's modifiers but allow extra ones if also held (in case the extra modifier is being used as a separate button/action)
+					if((button.modifiers & MOD_CONTROL) && !(GetAsyncKeyState(VK_CONTROL) & 0x8000)) pressed2 = false;
+					if((button.modifiers & MOD_SHIFT) && !(GetAsyncKeyState(MOD_SHIFT) & 0x8000)) pressed2 = false;
+					if((button.modifiers & MOD_ALT) && !(GetAsyncKeyState(MOD_ALT) & 0x8000)) pressed2 = false;
+					if((button.modifiers & MOD_WIN) && !(GetAsyncKeyState(MOD_WIN) & 0x8000)) pressed2 = false;
+				}
 			}
 
 			if(!button.diKey)
@@ -1391,6 +1333,85 @@ void Update_Input(HWND HWnd, bool frameSynced, bool allowExecute, bool isConfigI
 			}
 		}
 	}
+}
+
+
+bool IsHotkeyPress(bool isConfigInput)
+{
+	InputState* pInputState = isConfigInput ? &configInputState : &mainInputState;
+	InputState& inputState = *pInputState;
+
+	HRESULT rval = inputState.lpDIDKeyboard->GetDeviceState(256, &tempInputState.Keys);
+	if((rval == DIERR_INPUTLOST) | (rval == DIERR_NOTACQUIRED))
+	{
+		Restore_Input(inputState);
+		rval = inputState.lpDIDKeyboard->GetDeviceState(256, &tempInputState.Keys);
+		if((rval == DIERR_INPUTLOST) | (rval == DIERR_NOTACQUIRED))
+			memset(tempInputState.Keys, 0, sizeof(tempInputState.Keys));
+	}
+
+	for(int i = 0; i < inputState.Nb_Joys; i++)
+	{
+		if(inputState.Joy_ID[i])
+		{
+			inputState.Joy_ID[i]->Poll();
+			rval = inputState.Joy_ID[i]->GetDeviceState(sizeof(inputState.Joy_State[i]), &inputState.Joy_State[i]);
+			if(rval != DI_OK) inputState.Joy_ID[i]->Acquire();
+		}
+	}
+
+	int numButtons = GetNumHotkeys();
+	for(int i=0; i<numButtons; i++)
+	{
+		InputButton& button = s_hotkeyButtons[i];
+
+		bool pressed = button.diKey ? Check_Key_Pressed(button.diKey, tempInputState) : false;
+
+		if(button.virtKey || button.modifiers)
+		{
+			bool pressed2 = button.virtKey ? !!(GetAsyncKeyState(button.virtKey) & 0x8000) : true;
+
+			if(pressed2)
+			{
+				// require exactly the same modifiers
+				pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
+				pressed2 &= !(button.modifiers & MOD_SHIFT) == !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
+				pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
+				pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
+			}
+
+			if(!button.diKey)
+				pressed = true;
+
+			if(!pressed2)
+				pressed = false;
+		}
+
+		//bool oldPressed = button.heldNow;
+		if(pressed /*&& !oldPressed*/)
+		{
+			if(button.eventID)
+			{
+				if(!(button.modifiers & (MOD_CONTROL|MOD_SHIFT|MOD_WIN)))
+				{
+					HWND focus = GetFocus();
+					if(focus)
+					{
+						char text[5];
+						GetClassNameA(focus, text, 5);
+						if(!_stricmp(text, "Edit"))
+						{
+							// if typing into an edit field, don't interpret it as hotkey presses
+							continue;
+						}
+					}
+				}
+			}
+
+			return true;
+		}
+	}
+	return false;
 }
 
 
