@@ -7416,7 +7416,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 		if(!started/* && GetActiveWindow() == hWnd*/)
 		{
 			//Update_Input(hWnd, false, true);
-			CheckHotkeys(-1, false);
+			CheckHotkeys(-1, /*false*/true); // let's count "before any frame" as framesynced as far as hotkeys
 		}
 
 		// temp hack
@@ -7965,6 +7965,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					emuMode ^= EMUMODE_NOPLAYBUFFERS;
 					tasFlagsDirty = true;
 					CheckDialogChanges(-1);
+					mainMenuNeedsRebuilding = true;
 					break;
 				case ID_SOUND_VIRTUALDIRECTSOUND:
 					emuMode ^= EMUMODE_VIRTUALDIRECTSOUND;

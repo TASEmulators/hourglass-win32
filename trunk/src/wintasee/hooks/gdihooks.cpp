@@ -189,7 +189,7 @@ HOOKFUNC BOOL WINAPI MyStretchBlt(
 
 
 	BOOL rv;
-	if(!ShouldSkipDrawing(false, true))
+	if(!ShouldSkipDrawing(false, true) || usingSDLOrDD)
 	{
 		if(s_gdiPendingRefresh && !redrawingScreen)
 		{
@@ -248,7 +248,7 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 
 
 	BOOL rv;
-	if(!ShouldSkipDrawing(false, true))
+	if(!ShouldSkipDrawing(false, true) || usingSDLOrDD)
 	{
 		if(s_gdiPendingRefresh && !redrawingScreen)
 		{
