@@ -128,7 +128,7 @@ void ForceAlignSound(bool earlier);
 void StopAllSounds();
 void ResumePlayingSounds();
 void BackDoorStopAll();
-void DoFrameBoundarySoundChecks(bool noPlayBuffersOn);
+void DoFrameBoundarySoundChecks();
 void SoundDllMainInit();
 bool HookCOMInterfaceSound(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew);
 void ApplySoundIntercepts();
@@ -1066,8 +1066,6 @@ void FrameBoundary(void* captureInfo, int captureInfoType)
 
 	BOOL prevWindowActivateFlags = tasflags.windowActivateFlags;
 
-	bool noPlayBuffersOn = (tasflags.emuMode & EMUMODE_NOPLAYBUFFERS) != 0;
-
 	previnput = curinput;
 
 	g_videoFramesPrepared++;
@@ -1106,7 +1104,7 @@ void FrameBoundary(void* captureInfo, int captureInfoType)
 
 	pauseHandlerContiguousCallCount = 0;
 
-	DoFrameBoundarySoundChecks(noPlayBuffersOn);
+	DoFrameBoundarySoundChecks();
 
 
 	if(framecount > 1)

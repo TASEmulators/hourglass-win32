@@ -2289,7 +2289,7 @@ void ResumePlayingSounds()
 	lockdown = false;
 }
 
-void DoFrameBoundarySoundChecks(bool noPlayBuffersOn)
+void DoFrameBoundarySoundChecks()
 {
 	if(pauseHandlerSuspendedSound)
 	{
@@ -2297,9 +2297,13 @@ void DoFrameBoundarySoundChecks(bool noPlayBuffersOn)
 		pauseHandlerSuspendedSound = false;
 	}
 
+	static bool noPlayBuffersOn = false;
 	bool noPlayBuffersOnNow = (tasflags.emuMode & EMUMODE_NOPLAYBUFFERS) != 0;
-	if(noPlayBuffersOnNow != noPlayBuffersOn)
+	if(noPlayBuffersOn != noPlayBuffersOnNow)
+	{
+		noPlayBuffersOn = noPlayBuffersOnNow;
 		EmulatedDirectSoundBuffer::DisableMixingBufferOutput(noPlayBuffersOnNow);
+	}
 
 
 	if(MyDirectSound<IDirectSound>::m_freeDS)
