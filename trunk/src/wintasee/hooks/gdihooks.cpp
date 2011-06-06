@@ -61,10 +61,10 @@ static void FrameBoundaryDIBitsToAVI(const void* bits, const BITMAPINFO& bmi)
 			desc.ddpfPixelFormat.dwBBitMask = 0x001F;
 			break;
 		case 8:
+			// NYI
 			//descExtra.paletteData = (PALETTEENTRY*)bmi.bmiColors;
 			//descExtra.paletteEntryCount = bmi.bmiHeader.biClrUsed;
-			//break;
-			// FALLTHROUGH because NYI
+			break;
 		default:
 			valid = false;
 			break;
@@ -95,12 +95,21 @@ static void FrameBoundaryDIBitsToAVI(const void* bits, const BITMAPINFO& bmi)
 union FULLBITMAPINFO
 {
 	BITMAPINFO bmi;
-    RGBQUAD remainingColors [255];
+    RGBQUAD remainingColors [255 + 3*sizeof(DWORD)];
 };
+
+//#define UNSELECT_BEFORE_HDC_CAPTURE // TODO: if this doesn't slow down AVI capture of GDI games and it doesn't break anything when savestates are loaded during AVI capture of GDI games, then enable it
 
 static void FrameBoundaryHDCtoAVI(HDC hdc,int xSrc,int ySrc,int xRes,int yRes)
 {
-	HBITMAP bitmap = (HBITMAP)GetCurrentObject(hdc,OBJ_BITMAP);
+#ifdef UNSELECT_BEFORE_HDC_CAPTURE
+	// the docs say: "The bitmap identified by the hbmp parameter must not be selected into a device context when the application calls this function."
+	HBITMAP bitmap = (HBITMAP)SelectObject(hdc, CreateCompatibleBitmap(hdc, 1, 1));
+#else
+	// but this appears to work fine and it's probably at least a little bit faster, so...
+	HBITMAP bitmap = (HBITMAP)GetCurrentObject(hdc, OBJ_BITMAP);
+#endif
+
 	FULLBITMAPINFO fbmi = {sizeof(BITMAPINFOHEADER)};
 	BITMAPINFO& bmi = *(BITMAPINFO*)&fbmi;
 	GetDIBits(hdc, bitmap, 0, 0, 0, &bmi, DIB_RGB_COLORS);
@@ -115,8 +124,13 @@ static void FrameBoundaryHDCtoAVI(HDC hdc,int xSrc,int ySrc,int xRes,int yRes)
 
 	int height = bmi.bmiHeader.biHeight;
 	if(height < 0) height = -height;
+		
 	GetDIBits(hdc, bitmap, 0, height, bits, &bmi, DIB_RGB_COLORS);
 	FrameBoundaryDIBitsToAVI(bits, bmi);
+
+#ifdef UNSELECT_BEFORE_HDC_CAPTURE
+	DeleteObject(SelectObject(hdc, bitmap));
+#endif
 }
 
 
@@ -165,9 +179,6 @@ HOOKFUNC BOOL WINAPI MyStretchBlt(
 	int nWidthSrc, int nHeightSrc,
 	DWORD dwRop)
 {
-//	debuglog(LCF_GDI|LCF_FRAME|LCF_FREQUENT, __FUNCTION__ " called.\n");
-//	_asm {int 3};
-
 	bool isFrameBoundary = false;
 	if(!usingSDLOrDD /*&& !inPauseHandler*/ && !redrawingScreen)
 	{
@@ -178,7 +189,6 @@ HOOKFUNC BOOL WINAPI MyStretchBlt(
 				HWND hwnd = WindowFromDC(hdcDest);
 				if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
 				{
-// 					debugprintf("WINDOW EQUALS VERY 0x%X\n", hwnd);
 					isFrameBoundary = true;
 				}
 			}
@@ -189,7 +199,7 @@ HOOKFUNC BOOL WINAPI MyStretchBlt(
 
 
 	BOOL rv;
-	if(!ShouldSkipDrawing(false, true) || usingSDLOrDD)
+	if(!ShouldSkipDrawing(false, WindowFromDC(hdcDest) != 0))
 	{
 		if(s_gdiPendingRefresh && !redrawingScreen)
 		{
@@ -223,9 +233,6 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 	int nXSrc, int nYSrc,
 	DWORD dwRop)
 {
-	//debuglog(LCF_GDI|LCF_FRAME|LCF_FREQUENT, "(0x%X,%d,%d,%d,%d,0x%X,%d,%d,0x%X) called.\n", hdcDest,nXDest,nYDest,nWidth,nHeight,hdcSrc,nXSrc,nYSrc,dwRop);
-//	_asm {int 3};
-
 	bool isFrameBoundary = false;
 	if(!usingSDLOrDD /*&& !inPauseHandler*/ && !redrawingScreen)
 	{
@@ -236,19 +243,18 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 				HWND hwnd = WindowFromDC(hdcDest);
 				if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
 				{
-// 					debugprintf("WINDOW EQUALS VERY 0x%X\n", hwnd);
 					isFrameBoundary = true;
 				}
 			}
 		}
 	}
 
-	debuglog(LCF_GDI|(isFrameBoundary?LCF_FRAME:LCF_FREQUENT), __FUNCTION__ " called.\n");
+	debuglog(LCF_GDI|(isFrameBoundary?LCF_FRAME:LCF_FREQUENT), __FUNCTION__ "(0x%X,%d,%d,%d,%d,0x%X,%d,%d,0x%X) called.\n", hdcDest,nXDest,nYDest,nWidth,nHeight,hdcSrc,nXSrc,nYSrc,dwRop);
 
 
 
 	BOOL rv;
-	if(!ShouldSkipDrawing(false, true) || usingSDLOrDD)
+	if(!ShouldSkipDrawing(false, WindowFromDC(hdcDest) != 0))
 	{
 		if(s_gdiPendingRefresh && !redrawingScreen)
 		{
@@ -294,26 +300,6 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 	else
 		s_gdiPendingRefresh = true;
 
-	//debugprintf("rv = 0x%X, le=0x%X\n", rv, GetLastError());
-
-	//if(isFrameBoundary)
-	//	FrameBoundary();
-
-	//debugprintf("AZX: 0x%X, %d %d, %d %d, 0x%X, %d %d, 0x%X\n", hdcDest,nXDest,nYDest,nWidth,nHeight,hdcSrc,nXSrc,nYSrc,dwRop);
-	//HWND hwnd = WindowFromDC(hdcDest);
-	//RECT rect;
-	//if(GetClientRect(hwnd, &rect))
-	//{
-	//	debugprintf("SMC: 0x%X, %d,%d,%d,%d\n", hwnd, rect.left,rect.top,rect.right,rect.bottom);
-	//}
-	////int a = GetDeviceCaps(hdcSrc, TECHNOLOGY);
-	////int b = GetDeviceCaps(hdcDest, TECHNOLOGY);
-	////int c = GetDeviceCaps(hdcSrc, HORZRES);
-	////int d = GetDeviceCaps(hdcDest, HORZRES);
-	////int e = GetDeviceCaps(hdcSrc, VERTRES);
-	////int f = GetDeviceCaps(hdcDest, VERTRES);
-	////debugprintf("AZX: %d %d, %d %d, %d %d\n", a,b,c,d,e,f);
-
 	if(isFrameBoundary)
 	{
 		tls.peekedMessage = FALSE;
@@ -324,32 +310,8 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 		s_hdcSrcSaved = hdcSrc;
 		s_hdcDstSaved = hdcDest;
 	}
-//cmdprintf("SHORTTRACE: 3,50");
-
-
 
 	return rv;
-
-//
-////	debugprintf(__FUNCTION__ " called.\n");
-//	BOOL rv = BitBlt(hdcDest,nXDest,nYDest,nWidth,nHeight,hdcSrc,nXSrc,nYSrc,dwRop);
-//	DWORD lasterr = GetLastError();
-//	if(!rv)
-//		debugprintf("ERROR: 0x%X\n", lasterr);
-////	BOOL rv = StretchBlt(hdcDest,0,0,100,100,hdcSrc,0,0,100,100,dwRop);
-////	_asm {int 3};
-////	debugprintf("BitBlt(hdcDest=0x%X, hdcSrc=0x%X, nXDest=%d, nYDest=%d, nWidth=%d, nHeight=%d, nXSrc=%d, nYSrc=%d, dwRop=0x%X)\n",  hdcDest, hdcSrc, nXDest, nYDest, nWidth, nHeight, nXSrc, nYSrc, dwRop);
-//	if(extHWnd && 0)
-//	{
-//		HDC dc = GetDC(extHWnd);
-//		RECT rect;
-//		GetClientRect(extHWnd, &rect);
-//		//BOOL rv = StretchBlt(dc,0,0,rect.right,rect.bottom,hdcSrc,nXSrc,nYSrc,nXDest,nYDest,dwRop);
-//		BOOL rv = StretchBlt(dc,0,0,rect.right,rect.bottom,hdcSrc,nXSrc,nYSrc,nWidth,nHeight,dwRop);
-//		ReleaseDC(extHWnd, dc);
-//	}
-//	FrameBoundary();
-//	return rv;
 }
 
 bool RedrawScreenGDI()
