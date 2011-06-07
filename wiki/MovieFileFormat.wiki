@@ -27,4 +27,4 @@ Each byte is a [http://msdn.microsoft.com/en-us/library/dd375731%28v=vs.85%29.as
 
 Frames where more than 8 different keys are held cannot be represented by the movie format. Nevertheless, attempting to press more than 8 keys at once will not cause desyncs, because Hourglass implements recording by saving each frame of input in movie format and then playing that frame of input back as if in playback mode.
 
-DirectInput key codes are not stored separately, instead, they are generated based on the virtual key codes and the keyboard layout string that's stored in the current movie.
+!DirectInput key codes are not stored separately, instead, they are generated based on the virtual key codes and the keyboard layout string that's stored in the current movie.
