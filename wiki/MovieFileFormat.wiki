@@ -20,7 +20,7 @@ A WTF file consists of a 1024-byte header followed by the input data.
 400 frame data
 }}}
 
-===Controller Data===
+===Input Data===
 Each frame consists of 8 bytes of keyboard data.
 
 Each byte is a [http://msdn.microsoft.com/en-us/library/dd375731%28v=vs.85%29.aspx virtual key code] such as VK_ESCAPE indicating that a particular key was held on that frame. The first zero-value byte indicates that no other keys were held on that frame.
