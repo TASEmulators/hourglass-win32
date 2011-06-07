@@ -15,7 +15,7 @@ A WTF file consists of a 1024-byte header followed by the input data.
 018 4-byte little-endian unsigned int: initial system clock time plus 1
 01C 4-byte little-endian unsigned int: CRC32 of the game executable
 020 4-byte little-endian unsigned int: size in bytes of the game executable
-024 48-byte null-unterminated ASCII-encoded string: filename of game executable (excluding directories)
+024 48-byte null-terminated ASCII-encoded string: filename of game executable (excluding directories)
 054 reserved bytes which should be 0, padding until end of 1024 byte header
 400 frame data
 }}}
