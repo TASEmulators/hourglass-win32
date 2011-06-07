@@ -7,7 +7,7 @@ A WTF file consists of a 1024-byte header followed by the input data.
 
 ===Header format===
 {{{
-000 4-byte signature 0x02775466 "\02wTf"
+000 4-byte signature: 0x66 0x54 0x77 0x02
 004 4-byte little-endian unsigned int: total number of input frames
 008 4-byte little-endian unsigned int: rerecord count
 00C 8-byte unterminated ASCII-encoded string: keyboard layout such as "00000409" for a US keyboard
