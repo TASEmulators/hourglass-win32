@@ -389,7 +389,7 @@ struct MyDirect3DSwapChain9
 			rv = Present(pThis, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
 
 		IDirect3DDevice9* pDevice;
-		if(SUCCEEDED(pThis->GetDevice(&pDevice)))
+		if(SUCCEEDED(pThis->GetDevice(&pDevice)) && !redrawingScreen)
 			MyDirect3DDevice9::PresentFrameBoundary(pDevice);
 		return rv;
 	}
