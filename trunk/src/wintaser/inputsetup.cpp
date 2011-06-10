@@ -2394,7 +2394,8 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	// Debug Log Submenu
 	i = 0;
 	MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==0)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_DISABLED, "", "Disabled", 0);
-	MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==1)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_DEBUGGER, "", "Send to Debugger", 0);
+	if(debugPrintMode==1 || IsDebuggerPresent())
+		MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==1)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_DEBUGGER, "", "Send to Debugger", 0);
 	MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==2)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_LOGFILE, "", "Write to Log File", 0);
 	InsertMenu(DebugLogging, i++, MF_SEPARATOR, NULL, NULL);
 	MENU_L(DebugLogging, i++, Flags | MF_POPUP, (UINT)DebugLoggingInclude, "", "&Print Categories", 0);

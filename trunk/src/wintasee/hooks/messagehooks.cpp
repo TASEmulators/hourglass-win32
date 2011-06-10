@@ -1643,6 +1643,7 @@ HOOKFUNC BOOL WINAPI MyGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, U
 		if(rv && (CanMessageReachGame(lpMsg)))
 		{
 			//if(!inPauseHandler)
+			if(tls_IsPrimaryThread() && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 				tls.peekedMessage = TRUE;
 			FinalizeWndProcMessage(lpMsg);
 			return rv;
@@ -1746,6 +1747,7 @@ HOOKFUNC BOOL WINAPI MyGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, U
 		if(!rv || (CanMessageReachGame(lpMsg)))
 		{
 			//if(!inPauseHandler)
+			if(tls_IsPrimaryThread() && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 				tls.peekedMessage = TRUE;
 			FinalizeWndProcMessage(lpMsg);
 			return rv;
@@ -1832,7 +1834,8 @@ HOOKFUNC BOOL WINAPI MyPeekMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, 
 				detTimer.GetTicks(TIMETYPE_CRAWLHACK); // potentially desync prone (but some games will need it) ... moving it here (on no-result) helped sync a bit though... and the problem that happens here is usually caused by GetMessageActionFlags being incomplete
 			//if(!inPauseHandler)
 			{
-				tls.peekedMessage = TRUE;
+				if(tls_IsPrimaryThread() && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+					tls.peekedMessage = TRUE;
 //				ThreadBoundary(100);
 			}
 			FinalizeWndProcMessage(lpMsg);
@@ -1924,7 +1927,8 @@ HOOKFUNC BOOL WINAPI MyPeekMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, 
 				detTimer.GetTicks(TIMETYPE_CRAWLHACK); // potentially desync prone (but some games will need it) ... moving it here (on no-result) helped sync a bit though... and the problem that happens here is usually caused by GetMessageActionFlags being incomplete
 			//if(!inPauseHandler)
 			{
-				tls.peekedMessage = TRUE;
+				if(tls_IsPrimaryThread() && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+					tls.peekedMessage = TRUE;
 //				ThreadBoundary(100);
 			}
 			FinalizeWndProcMessage(lpMsg);

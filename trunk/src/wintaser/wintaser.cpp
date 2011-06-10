@@ -1421,10 +1421,15 @@ void SaveGameStatePhase2(int slot)
 			// if it's not writable (and committed) then assume/hope it doesn't need to be saved
 			//if(((mbi.Protect & PAGE_READWRITE) || (mbi.Protect & PAGE_EXECUTE_READWRITE) || (mbi.Protect & PAGE_WRITECOPY) || (mbi.Protect & PAGE_EXECUTE_WRITECOPY))
 			if(((mbi.Protect & PAGE_READWRITE) || (mbi.Protect & PAGE_EXECUTE_READWRITE))
-			&& !(mbi.Protect & PAGE_GUARD)
+			//&& !(mbi.Protect & PAGE_GUARD)
 			&& (mbi.State & MEM_COMMIT)
 			)
 			{
+				if(mbi.Protect & PAGE_GUARD)
+				{
+					DWORD dwOldProtect;
+					VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect & ~PAGE_GUARD, &dwOldProtect); 
+				}
 				SaveState::MemoryRegion region;
 				region.info = mbi;
 				region.data = new unsigned char[mbi.RegionSize];
@@ -1465,6 +1470,12 @@ void SaveGameStatePhase2(int slot)
 					//}
 
 					delete[] region.data;
+				}
+
+				if(mbi.Protect & PAGE_GUARD)
+				{
+					DWORD dwOldProtect;
+					VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect, &dwOldProtect); 
 				}
 
 				//debugprintf(
@@ -1780,14 +1791,14 @@ void LoadGameStatePhase2(int slot)
 				//   This means that you can commit pages without first determining the current commitment state of each page")
 				// so we'll simply ask for it to be allocated in case it needs to be
 
-				void* allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.State, mbi.Protect);
+				void* allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.State, mbi.Protect & ~PAGE_GUARD);
 				if(allocAddr != mbi.BaseAddress && mbi.State == MEM_COMMIT && GetLastError() != 0x5)
-					allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, mbi.Protect);
+					allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, mbi.Protect & ~PAGE_GUARD);
 	//			void* allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, (mbi.State == MEM_COMMIT) ? (MEM_COMMIT|MEM_RESERVE) : mbi.State, mbi.Protect);
 				if(allocAddr != mbi.BaseAddress && !(mbi.Type & MEM_IMAGE))
 					debugprintf("FAILED TO COMMIT MEMORY REGION: BaseAddress=0x%08X, RegionSize=0x%X, ResultAddress=0x%X, LastError=0x%X\n", mbi.BaseAddress, mbi.RegionSize, allocAddr, GetLastError());
 				DWORD dwOldProtect = 0;
-				BOOL protectResult = VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect, &dwOldProtect); 
+				BOOL protectResult = VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect & ~PAGE_GUARD, &dwOldProtect); 
 				if(!protectResult )//&& !(mbi.Type & MEM_IMAGE))
 					debugprintf("FAILED TO PROTECT MEMORY REGION: BaseAddress=0x%08X, RegionSize=0x%X, LastError=0x%X\n", mbi.BaseAddress, mbi.RegionSize, GetLastError());
 
@@ -1795,6 +1806,9 @@ void LoadGameStatePhase2(int slot)
 				BOOL writeResult = WriteProcessMemory(hGameProcess, mbi.BaseAddress, region.data, mbi.RegionSize, &bytesWritten);
 				if(!writeResult )//&& !(mbi.Type & MEM_IMAGE))
 					debugprintf("FAILED TO WRITE MEMORY REGION: BaseAddress=0x%08X, RegionSize=0x%X, LastError=0x%X\n", mbi.BaseAddress, mbi.RegionSize, GetLastError());
+
+				if(mbi.Protect & PAGE_GUARD)
+					VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect, &dwOldProtect); 
 			}
 		}
 
@@ -3639,6 +3653,8 @@ chooseAnotherFormat:
 			goto chooseAnotherFormat;
 		}
 
+		if(bmpInfo.bmiHeader.biWidth & 1) bmpInfo.bmiHeader.biWidth--;
+		if(bmpInfo.bmiHeader.biHeight & 1) bmpInfo.bmiHeader.biHeight--;
 		hr = AVIStreamSetFormat(aviCompressedStream, 0, &bmpInfo, sizeof(bmpInfo));
 		if(FAILED(hr))
 		{ 

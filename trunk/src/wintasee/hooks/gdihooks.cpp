@@ -12,7 +12,7 @@
 #include <windowsx.h>
 
 #include "../phasedetection.h"
-static PhaseDetector s_gdiPhaseDetector;
+//static PhaseDetector s_gdiPhaseDetector;
 
 
 
@@ -182,12 +182,13 @@ HOOKFUNC BOOL WINAPI MyStretchBlt(
 	bool isFrameBoundary = false;
 	if(!usingSDLOrDD /*&& !inPauseHandler*/ && !redrawingScreen)
 	{
-		if(dwRop == SRCCOPY && s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(nXOriginDest,nYOriginDest)))
+		if(dwRop == SRCCOPY)
 		{
-			if(tls.peekedMessage && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+			HWND hwnd = WindowFromDC(hdcDest);
+			if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
 			{
-				HWND hwnd = WindowFromDC(hdcDest);
-				if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
+				if((/*s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(nXOriginDest,nYOriginDest))
+					||*/ tls.peekedMessage) && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 				{
 					isFrameBoundary = true;
 				}
@@ -236,12 +237,13 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 	bool isFrameBoundary = false;
 	if(!usingSDLOrDD /*&& !inPauseHandler*/ && !redrawingScreen)
 	{
-		if(dwRop == SRCCOPY && s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(nXDest,nYDest)))
+		if(dwRop == SRCCOPY)
 		{
-			if(tls.peekedMessage && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+			HWND hwnd = WindowFromDC(hdcDest);
+			if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
 			{
-				HWND hwnd = WindowFromDC(hdcDest);
-				if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
+				if((/*s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(nXDest,nYDest))
+					||*/ tls.peekedMessage) && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 				{
 					isFrameBoundary = true;
 				}
@@ -317,7 +319,7 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 bool RedrawScreenGDI()
 {
 	s_gdiPendingRefresh = false;
-	if(!s_hdcSrcSaved)
+	if(!s_hdcSrcSaved || usingSDLOrDD)
 		return false;
 	RECT rect;
 	if(!GetClientRect(WindowFromDC(s_hdcDstSaved), &rect))
@@ -335,12 +337,18 @@ HOOKFUNC int WINAPI MySetDIBitsToDevice(HDC hdc, int xDest, int yDest, DWORD w, 
 	int rv = SetDIBitsToDevice(hdc, xDest, yDest, w, h, xSrc, ySrc, StartScan, cLines, lpvBits, lpbmi, ColorUse);
 	if(!usingSDLOrDD /*&& !inPauseHandler*/ && !redrawingScreen)
 	{
-		if(rv != 0 && rv != GDI_ERROR && VerifyIsTrustedCaller(!tls.callerisuntrusted) && s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(xDest,yDest)))
+		HWND hwnd = WindowFromDC(hdc);
+		if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
 		{
-			if(!(tasflags.aviMode & 1))
-				FrameBoundary(NULL, CAPTUREINFO_TYPE_NONE);
-			else
-				FrameBoundaryDIBitsToAVI(lpvBits,*lpbmi);
+			if(rv != 0 && rv != GDI_ERROR && (/*s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(xDest,yDest))
+				||*/ tls.peekedMessage) && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+			{
+				if(!(tasflags.aviMode & 1))
+					FrameBoundary(NULL, CAPTUREINFO_TYPE_NONE);
+				else
+					FrameBoundaryDIBitsToAVI(lpvBits,*lpbmi);
+				tls.peekedMessage = FALSE;
+			}
 		}
 	}
 	return rv;
@@ -351,12 +359,18 @@ HOOKFUNC int WINAPI MyStretchDIBits(HDC hdc, int xDest, int yDest, int DestWidth
 	int rv = StretchDIBits(hdc, xDest, yDest, DestWidth, DestHeight, xSrc, ySrc, SrcWidth, SrcHeight, lpBits, lpbmi, iUsage, rop);
 	if(!usingSDLOrDD /*&& !inPauseHandler*/ && !redrawingScreen)
 	{
-		if(rv != 0 && rv != GDI_ERROR && rop == SRCCOPY && VerifyIsTrustedCaller(!tls.callerisuntrusted) && s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(xDest,yDest)))
+		HWND hwnd = WindowFromDC(hdc);
+		if(hwnd /*&& !hwndRespondingToPaintMessage[hwnd]*/)
 		{
-			if(!(tasflags.aviMode & 1))
-				FrameBoundary(NULL, CAPTUREINFO_TYPE_NONE);
-			else
-				FrameBoundaryDIBitsToAVI(lpBits,*lpbmi);
+			if(rv != 0 && rv != GDI_ERROR && rop == SRCCOPY && (/*s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(xDest,yDest))
+				||*/ tls.peekedMessage) && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+			{
+				if(!(tasflags.aviMode & 1))
+					FrameBoundary(NULL, CAPTUREINFO_TYPE_NONE);
+				else
+					FrameBoundaryDIBitsToAVI(lpBits,*lpbmi);
+				tls.peekedMessage = FALSE;
+			}
 		}
 	}
 	return rv;

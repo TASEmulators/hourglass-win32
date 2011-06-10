@@ -142,7 +142,7 @@ struct MyDirect3DDevice8
 		else
 			rv = Present(pThis, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 
-		if(d3d8BackBufActive || d3d8BackBufDirty)
+		if((d3d8BackBufActive || d3d8BackBufDirty) && !redrawingScreen)
 		{
 			PresentFrameBoundary(pThis, pSourceRect, pDestRect);
 			d3d8BackBufDirty = false;
@@ -247,11 +247,14 @@ struct MyDirect3DDevice8
 		d3ddebugprintf(__FUNCTION__ " called.\n");
 		HRESULT rv = CopyRects(pThis, pSourceSurface,pSourceRectsArray,cRects,pDestinationSurface,pDestPointsArray);
 		IDirect3DSurface8* pBuffer;
-		if(!d3d8BackBufDirty && SUCCEEDED(pThis->GetBackBuffer(0,D3DBACKBUFFER_TYPE_MONO,&pBuffer)) && pDestinationSurface == pBuffer)
-			d3d8BackBufDirty = true;
-		// NYI. maybe need to call PresentFrameBoundary in some cases (if pDestinationSurface can be the front buffer)
-		//else if(SUCCEEDED(pThis->GetFrontBuffer(&pBuffer)) && pDestinationSurface == pBuffer)
-		//	PresentFrameBoundary(pThis);
+		if(!redrawingScreen)
+		{
+			if(!d3d8BackBufDirty && SUCCEEDED(pThis->GetBackBuffer(0,D3DBACKBUFFER_TYPE_MONO,&pBuffer)) && pDestinationSurface == pBuffer)
+				d3d8BackBufDirty = true;
+			// NYI. maybe need to call PresentFrameBoundary in some cases (if pDestinationSurface can be the front buffer)
+			//else if(SUCCEEDED(pThis->GetFrontBuffer(&pBuffer)) && pDestinationSurface == pBuffer)
+			//	PresentFrameBoundary(pThis);
+		}
 		return rv;
 	}
 
@@ -500,7 +503,7 @@ struct MyDirect3DSwapChain8
 
 		IDirect3DDevice8* pDevice;
 		//if(SUCCEEDED(pThis->GetDevice(&pDevice)))
-		if(0 != (pDevice = d3d8SwapChainToDeviceMap[pThis]))
+		if(0 != (pDevice = d3d8SwapChainToDeviceMap[pThis]) && !redrawingScreen)
 			MyDirect3DDevice8::PresentFrameBoundary(pDevice,pSourceRect,pDestRect);
 		return rv;
 	}

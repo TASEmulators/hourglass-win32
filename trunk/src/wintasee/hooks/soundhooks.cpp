@@ -52,6 +52,7 @@ static BOOL lockdown = FALSE;
 static CRITICAL_SECTION s_soundBufferListCS;
 
 static BOOL noDirectSoundOutputAvailable = FALSE;
+static bool usingVirtualDirectSound = false;
 
 void MixFromToInternal(DWORD pos1, DWORD pos2, DWORD outPos1, DWORD outPos2, bool pos2IsLastSample,
 	DWORD outSamplesPerSec, WORD myBitsPerSample, WORD outBitsPerSample, WORD myChannels, WORD outChannels, WORD myBlockSize, WORD outBlockSize,
@@ -1488,7 +1489,7 @@ public:
 
 		if(!(pcDSBufferDesc->dwFlags & DSBCAPS_PRIMARYBUFFER) && ((tasflags.emuMode & EMUMODE_EMULATESOUND) || !m_ds))
 		{
-			if(!(tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND))
+			if(!(tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND) && !usingVirtualDirectSound)
 			{
 				EnterCriticalSection(&s_myMixingOutputBufferCS);
 				if(!m_myMixingOutputBuffer)
@@ -2050,7 +2051,7 @@ HOOKFUNC HRESULT WINAPI MyDirectSoundCreate(LPCGUID pcGuidDevice, LPDIRECTSOUND 
 		const char* oldName = curtls.curThreadCreateName;
 		curtls.curThreadCreateName = "DirectSound";
 		HRESULT rv = E_FAIL;
-		if(!(tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND))
+		if(!(tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND) && !usingVirtualDirectSound)
 		{
 			rv = DirectSoundCreate(pcGuidDevice, ppDS, pUnkOuter);
 
@@ -2064,6 +2065,7 @@ HOOKFUNC HRESULT WINAPI MyDirectSoundCreate(LPCGUID pcGuidDevice, LPDIRECTSOUND 
 			// let's give it a dummy directsound for sync purposes
 			if(ppDS)
 			{
+				usingVirtualDirectSound = true;
 				*ppDS = new MyDirectSound<IDirectSound>(NULL);
 				rv = DS_OK;
 			}
@@ -2097,7 +2099,7 @@ HOOKFUNC HRESULT WINAPI MyDirectSoundCreate8(LPCGUID pcGuidDevice, LPDIRECTSOUND
 		const char* oldName = curtls.curThreadCreateName;
 		curtls.curThreadCreateName = "DirectSound8";
 		HRESULT rv = E_FAIL;
-		if(!(tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND))
+		if(!(tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND) && !usingVirtualDirectSound)
 		{
 			rv = DirectSoundCreate8(pcGuidDevice, ppDS, pUnkOuter);
 
@@ -2111,6 +2113,7 @@ HOOKFUNC HRESULT WINAPI MyDirectSoundCreate8(LPCGUID pcGuidDevice, LPDIRECTSOUND
 			// let's give it a dummy directsound for sync purposes
 			if(ppDS)
 			{
+				usingVirtualDirectSound = true;
 				*ppDS = new MyDirectSound<IDirectSound8>(NULL);
 				rv = DS_OK;
 			}
@@ -2308,7 +2311,8 @@ void DoFrameBoundarySoundChecks()
 
 	if(MyDirectSound<IDirectSound>::m_freeDS)
 	{
-		MyDirectSound<IDirectSound>::m_freeDS->Release();
+		// disabled as a temporary hack fix for games like Eternal Daughter still freezing
+		//MyDirectSound<IDirectSound>::m_freeDS->Release();
 		MyDirectSound<IDirectSound>::m_freeDS = NULL;
 	}
 	if(MyDirectSound<IDirectSound8>::m_freeDS)
@@ -2326,12 +2330,13 @@ void SoundDllMainInit()
 
 bool TrySoundCoCreateInstance(REFIID riid, LPVOID *ppv)
 {
-	if((tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND) && riid == IID_IDirectSound)
+	bool applicable = ((tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND) || usingVirtualDirectSound);
+	if(applicable && riid == IID_IDirectSound)
 	{
 		*ppv = (IDirectSound*)(new MyDirectSound<IDirectSound>(NULL));
 		return true;
 	}
-	else if((tasflags.emuMode & EMUMODE_VIRTUALDIRECTSOUND) && riid == IID_IDirectSound8)
+	else if(applicable && riid == IID_IDirectSound8)
 	{
 		*ppv = (IDirectSound8*)(new MyDirectSound<IDirectSound8>(NULL));
 		return true;
