@@ -1354,8 +1354,8 @@ HOOKFUNC BOOL WINAPI MyPostMessageA(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM l
 {
 	debuglog(LCF_MESSAGES, __FUNCTION__ "(0x%X, 0x%X (%s), 0x%X, 0x%X) called.\n", hWnd, Msg, GetWindowsMessageName(Msg), wParam, lParam);
 
-#pragma message("FIXMEEE")
-	debugprintf(__FUNCTION__ "(0x%X, 0x%X (%s), 0x%X, 0x%X) called.\n", hWnd, Msg, GetWindowsMessageName(Msg), wParam, lParam);
+//#pragma message("FIXMEEE")
+//	debugprintf(__FUNCTION__ "(0x%X, 0x%X (%s), 0x%X, 0x%X) called.\n", hWnd, Msg, GetWindowsMessageName(Msg), wParam, lParam);
 	//if(Msg==WM_CLOSE)cmdprintf("DEBUGREDALERT: 0");//{return 1;}
 
 	if(isMessageWhitelisted(Msg))
