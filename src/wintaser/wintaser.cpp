@@ -257,6 +257,7 @@ bool InjectDLLIntoIDT(DWORD dwInjectProcessID, HANDLE hInjectProcess, HANDLE hIn
 //static bool iatInjectionEnabled = true;
 
 static bool terminateRequest = false;
+static bool terminateWaiting = false;
 
 
 HWND hWnd = 0;
@@ -6040,6 +6041,8 @@ static int IsPathTrusted(const char* path)
 		return 1;
 	if(!_strnicmp(path, subexefilename, end - path))
 		return 1;
+	if(strlen(path) >= 4 && !_strnicmp(path + strlen(path) - 4, ".cox", 4)) // hack, we can generally assume the game outputted any dll that has this extension
+		return 1;
 
 	return 0;
 }
@@ -6206,8 +6209,6 @@ static void DebuggerThreadFuncCleanup(HANDLE threadHandleToClose, HANDLE hProces
 		CloseHandle(threadHandleToClose);
 	}
 
-	terminateRequest = false;
-	debuggerThread = 0;
 	started = false;
 	paused = false;
 	mainMenuNeedsRebuilding = true;
@@ -6246,6 +6247,9 @@ static void DebuggerThreadFuncCleanup(HANDLE threadHandleToClose, HANDLE hProces
 		CloseHandle(hOldProcess);
 	}
 	oldProcessInfos.clear();
+
+	terminateRequest = false;
+	debuggerThread = 0; // should happen last
 }
 
 
@@ -7310,9 +7314,16 @@ done:
 	}
 earlyAbort:
 	DebuggerThreadFuncCleanup(processInfo.hThread, processInfo.hProcess);
-	EnableDisablePlayRecordButtons(hWnd);
-	CheckDialogChanges(0); // update dialog to reflect movie being closed
-	return 0;
+	if(!terminateWaiting)
+	{
+		// shouldn't do this here (should be after this thread exits, technically)
+		// but in the case where nothing is waiting for us to exit we do it here, otherwise it might never happen
+		EnableDisablePlayRecordButtons(hWnd);
+		CheckDialogChanges(0); // update dialog to reflect movie being closed
+	}
+
+	TerminateThread(GetCurrentThread(), 0); // hack for Vista (on Vista this thread just freezes if we try to return instead)
+	return 0; // this works fine on Windows XP but not on Vista?
 }
 
 
@@ -8594,7 +8605,9 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						//CheckDlgButton(hDlg, IDC_AVIVIDEO, aviMode & 1);
 						//CheckDlgButton(hDlg, IDC_AVIAUDIO, aviMode & 2);
 						bool wasPlayback = playback;
+						HANDLE hDebuggerThread = debuggerThread;
 						terminateRequest = true;
+						terminateWaiting = true;
 						int prevTime = timeGetTime();
 						while(debuggerThread && ((timeGetTime() - prevTime) < 5000))
 						{
@@ -8605,7 +8618,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 							// while we're waiting here for it to finish.
 							MSG msg;
 							int count = 0;
-							while(count < 4 && GetMessage(&msg, NULL, 0, 0))
+							while(count < 4 && PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 							{
 								if(PreTranslateMessage(msg))
 									TranslateMessage(&msg);
@@ -8613,19 +8626,21 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 								count++;
 							}
 						}
-						if(debuggerThread)
+						if(debuggerThread || WaitForSingleObject(hDebuggerThread, 100) == WAIT_TIMEOUT)
 						{
-							debugprintf("WARNING: had to force terminate debugger thread\n");
+							debugprintf("WARNING: had to force terminate debugger thread after %d seconds\n", (timeGetTime() - prevTime)/1000);
 							if(IsDebuggerPresent())
 							{
-								_asm{int 3}
+								_asm{int 3} // please check to see where the DebuggerThreadFunc thread is frozen
 							}
-							TerminateThread(debuggerThread, -1);
+							TerminateThread(hDebuggerThread, -1);
 							DebuggerThreadFuncCleanup(INVALID_HANDLE_VALUE, hGameProcess);
 							debuggerThread = 0;
 						}
 						if(unsaved)
 							SaveMovieToFile(moviefilename);
+						terminateRequest = false;
+						terminateWaiting = false;
 						EnableDisablePlayRecordButtons(hDlg);
 						CheckDialogChanges(0); // update dialog to reflect movie being closed
 						requestedCommandReenter = false;
