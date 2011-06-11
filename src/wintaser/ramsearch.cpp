@@ -113,6 +113,8 @@ int curr_ram_size=0;
 bool noMisalign=0;
 int ResultCount=0;
 
+void DeallocateRamSearch(){}
+
 
 #else // actual implementation on a capable-enough compiler:
 
@@ -2044,6 +2046,30 @@ void init_list_box(HWND Box, const char* Strs[], int numColumns, int *columnWidt
 	}
 
 	ListView_SetExtendedListViewStyle(Box, LVS_EX_FULLROWSELECT);
+}
+
+void DeallocateRamSearch()
+{
+	if(RamSearchHWnd)
+	{
+		ListView_SetItemCount(GetDlgItem(RamSearchHWnd,IDC_RAMLIST),0);
+		RefreshRamListSelectedCountControlStatus(RamSearchHWnd);
+		last_rs_possible--;
+		UpdatePossibilities(0,0);
+	}
+	s_itemIndicesInvalid = true;
+	s_prevValuesNeedUpdate = true;
+	s_maxItemIndex = 0;
+	MAX_RAM_SIZE = 0;
+	s_undoType = 0;
+	free(s_prevValues); s_prevValues = 0;
+	free(s_curValues); s_curValues = 0;
+	free(s_numChanges); s_numChanges = 0;
+	free(s_itemIndexToRegionPointer); s_itemIndexToRegionPointer = 0;
+	EnterCriticalSection(&s_activeMemoryRegionsCS);
+	MemoryList temp1; s_activeMemoryRegions.swap(temp1);
+	MemoryList temp2; s_activeMemoryRegionsBackup.swap(temp2);
+	LeaveCriticalSection(&s_activeMemoryRegionsCS);
 }
 
 #else
