@@ -257,7 +257,7 @@ bool InjectDLLIntoIDT(DWORD dwInjectProcessID, HANDLE hInjectProcess, HANDLE hIn
 //static bool iatInjectionEnabled = true;
 
 static bool terminateRequest = false;
-static bool terminateWaiting = false;
+static bool afterDebugThreadExit = false;
 
 
 HWND hWnd = 0;
@@ -1081,6 +1081,12 @@ private:
 	SharedDataHandle(const SharedDataHandle& c);
 };
 
+template<typename T>
+static void ClearAndDeallocateContainer(T& c)
+{
+	T temp;
+	c.swap(temp);
+}
 
 
 // holds the state of a Windows process.
@@ -1113,14 +1119,22 @@ struct SaveState
 
 	void Clear()
 	{
+		Deallocate();
+		ClearAndDeallocateContainer(movie.frames);
 		valid = false;
 		stale = false;
-		for(unsigned int i = 0; i < memory.size(); i++)
-			memory[i].dataHandle->Release();
-		memory.clear();
-		threads.clear();
 	}
 	SaveState() { Clear(); }
+
+	void Deallocate()
+	{
+		stale = true;
+		for(unsigned int i = 0; i < memory.size(); i++)
+			memory[i].dataHandle->Release();
+		ClearAndDeallocateContainer(memory);
+		ClearAndDeallocateContainer(threads);
+		// don't clear movie here, since stale states still need that info
+	}
 };
 
 static const int maxNumSavestates = 21;
@@ -7314,18 +7328,47 @@ done:
 	}
 earlyAbort:
 	DebuggerThreadFuncCleanup(processInfo.hThread, processInfo.hProcess);
-	if(!terminateWaiting)
-	{
-		// shouldn't do this here (should be after this thread exits, technically)
-		// but in the case where nothing is waiting for us to exit we do it here, otherwise it might never happen
-		EnableDisablePlayRecordButtons(hWnd);
-		CheckDialogChanges(0); // update dialog to reflect movie being closed
-	}
+
+	// certain cleanup tasks need to happen after this thread has exited,
+	// because either they might take too long, or they enable things in the UI
+	// that aren't safe to click on until after this thread is really completely gone
+	afterDebugThreadExit = true;
 
 	TerminateThread(GetCurrentThread(), 0); // hack for Vista (on Vista this thread just freezes if we try to return instead)
 	return 0; // this works fine on Windows XP but not on Vista?
 }
 
+static DWORD WINAPI AfterDebugThreadExitThread(LPVOID lpParam)
+{
+	// clear out savestate memory (it's useless now anyway)
+	for(int i = 0; i < maxNumSavestates; i++)
+		savestates[i].Deallocate();
+
+	// and clear out some other memory
+	ClearAndDeallocateContainer(dllBaseToFilename);
+	ClearAndDeallocateContainer(gameHWnds);
+	ClearAndDeallocateContainer(hGameThreads);
+	ClearAndDeallocateContainer(gameThreadIdList);
+	ClearAndDeallocateContainer(trustedModuleInfos);
+	ClearAndDeallocateContainer(injectedDllModuleInfo.path);
+	ClearAndDeallocateContainer(oldProcessInfos);
+
+	DeallocateRamSearch();
+
+	EnableDisablePlayRecordButtons(hWnd);
+	CheckDialogChanges(0); // update dialog to reflect movie being closed
+
+	return 0;
+}
+
+void OnAfterDebugThreadExit()
+{
+	afterDebugThreadExit = false;
+
+	// let's run this cleanup code on a separate thread to keep the rest of the ui responsive
+	// in case it happens to take a long time (it shouldn't, but who knows when it comes to deallocating memory)
+	CreateThread(NULL, 0, AfterDebugThreadExitThread, NULL, 0, NULL);
+}
 
 void PrepareForExit()
 {
@@ -7448,6 +7491,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	Build_Main_Menu(MainMenu, hWnd);
 
 	PrintPrivileges(GetCurrentProcess());
+
+	CheckDialogChanges(0);
 
 //	atexit(PrepareForExit);
 
@@ -7578,6 +7623,9 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			Build_Main_Menu(MainMenu, hWnd);
 			mainMenuNeedsRebuilding = false;
 		}
+
+		if(afterDebugThreadExit)
+			OnAfterDebugThreadExit();
 	}
 
 	PrepareForExit();
@@ -8420,7 +8468,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				case ID_DEBUGLOG_DISABLED: debugPrintMode = 0; tasFlagsDirty = true; break;
 				case ID_DEBUGLOG_DEBUGGER: debugPrintMode = 1; tasFlagsDirty = true; break;
 				case ID_DEBUGLOG_LOGFILE: debugPrintMode = 2; tasFlagsDirty = true; break;
-
+				case ID_DEBUGLOG_TOGGLETRACEENABLE: traceEnabled = !traceEnabled; break;
 
 				case ID_FILES_LOADSTATE_1:
 				case ID_FILES_LOADSTATE_2:
@@ -8607,7 +8655,6 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						bool wasPlayback = playback;
 						HANDLE hDebuggerThread = debuggerThread;
 						terminateRequest = true;
-						terminateWaiting = true;
 						int prevTime = timeGetTime();
 						while(debuggerThread && ((timeGetTime() - prevTime) < 5000))
 						{
@@ -8640,9 +8687,8 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						if(unsaved)
 							SaveMovieToFile(moviefilename);
 						terminateRequest = false;
-						terminateWaiting = false;
-						EnableDisablePlayRecordButtons(hDlg);
-						CheckDialogChanges(0); // update dialog to reflect movie being closed
+						if(afterDebugThreadExit)
+							OnAfterDebugThreadExit();
 						requestedCommandReenter = false;
 						if(lParam == 42)
 							goto case_IDC_BUTTON_PLAY;
@@ -8865,8 +8911,9 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			break;
 
 		case WM_CTLCOLORSTATIC:
-			if((HWND)lParam == GetDlgItem(hDlg, IDC_STATIC_MOVIESTATUS)
-			|| (HWND)lParam == GetDlgItem(hDlg, IDC_STATIC_FRAMESLASH)) 
+			if(((HWND)lParam == GetDlgItem(hDlg, IDC_STATIC_MOVIESTATUS)
+			|| (HWND)lParam == GetDlgItem(hDlg, IDC_STATIC_FRAMESLASH))
+			&& started) 
 			{
 				if(finished) // turn text red when movie is finished
 				{

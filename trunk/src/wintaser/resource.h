@@ -184,6 +184,7 @@
 #define ID_DEBUGLOG_DISABLED            35300
 #define ID_DEBUGLOG_DEBUGGER            35301
 #define ID_DEBUGLOG_LOGFILE             35302
+#define ID_DEBUGLOG_TOGGLETRACEENABLE   35303
 
 #define ID_FILES_STOP_RELAY             40010
 #define ID_FILES_STOP                   40011

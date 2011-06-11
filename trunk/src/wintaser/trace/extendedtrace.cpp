@@ -22,6 +22,8 @@
 // header through StdAfx.h
 //#include "stdafx.h"
 
+bool traceEnabled = true;
+
 #if 1//defined(_DEBUG) && defined(WIN32)
 
 #define WIN32_LEAN_AND_MEAN		// Exclude rarely-used stuff from Windows headers
@@ -68,6 +70,9 @@ static BOOL(__stdcall *pSymGetTypeInfo)(HANDLE, DWORD64, ULONG, IMAGEHLP_SYMBOL_
 
 void LoadDbghelpDll()
 {
+	if(!traceEnabled)
+		return;
+
 	static bool loaded = false;
 	if(loaded)
 		return;
@@ -306,7 +311,7 @@ BOOL InitSymInfo( PCSTR lpszInitialSymbolPath, HANDLE hProcess )
 {
 	LoadDbghelpDll();
 
-	if(!pSymInitialize)
+	if(!pSymInitialize || !traceEnabled)
 		return FALSE;
 
 #ifdef ASSUME_SINGLE_HPROCESS

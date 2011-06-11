@@ -1264,7 +1264,7 @@ void Update_Input(HWND HWnd, bool frameSynced, bool allowExecute, bool isConfigI
 
 			if(pressed2)
 			{
-				if(isHotkeys)
+				if(isHotkeys && !button.alias) // (consider hotkeys with an alias game-button-like)
 				{
 					// require exactly the same modifiers
 					pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
@@ -1373,11 +1373,22 @@ bool IsHotkeyPress(bool isConfigInput)
 
 			if(pressed2)
 			{
-				// require exactly the same modifiers
-				pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
-				pressed2 &= !(button.modifiers & MOD_SHIFT) == !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
-				pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
-				pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
+				if(!button.alias) // (consider hotkeys with an alias game-button-like)
+				{
+					// require exactly the same modifiers
+					pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
+					pressed2 &= !(button.modifiers & MOD_SHIFT) == !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
+					pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
+					pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
+				}
+				else
+				{
+					// require the button's modifiers but allow extra ones if also held (in case the extra modifier is being used as a separate button/action)
+					if((button.modifiers & MOD_CONTROL) && !(GetAsyncKeyState(VK_CONTROL) & 0x8000)) pressed2 = false;
+					if((button.modifiers & MOD_SHIFT) && !(GetAsyncKeyState(MOD_SHIFT) & 0x8000)) pressed2 = false;
+					if((button.modifiers & MOD_ALT) && !(GetAsyncKeyState(MOD_ALT) & 0x8000)) pressed2 = false;
+					if((button.modifiers & MOD_WIN) && !(GetAsyncKeyState(MOD_WIN) & 0x8000)) pressed2 = false;
+				}
 			}
 
 			if(!button.diKey)
@@ -1865,6 +1876,7 @@ extern int messageSyncMode;
 extern int waitSyncMode;
 extern int aviFrameCount;
 extern int aviSoundFrameCount;
+extern bool traceEnabled;
 extern int debugPrintMode;
 extern LogCategoryFlag includeLogFlags;
 extern LogCategoryFlag traceLogFlags;
@@ -1918,6 +1930,7 @@ int Save_Config(const char* filename)
 	SetPrivateProfileIntA("Input", "Background Hotkeys Focus Flags", hotkeysFocusFlags, Conf_File);
 
 	SetPrivateProfileIntA("Debug", "Debug Logging Mode", debugPrintMode, Conf_File);
+	SetPrivateProfileIntA("Debug", "Load Debug Tracing", traceEnabled, Conf_File);
 
 	wsprintf(Str_Tmp, "%d", AutoRWLoad);
 	WritePrivateProfileString("Watches", "AutoLoadWatches", Str_Tmp, Conf_File);
@@ -2017,6 +2030,7 @@ int Load_Config(const char* filename)
 	hotkeysFocusFlags = GetPrivateProfileIntA("Input", "Background Hotkeys Focus Flags", hotkeysFocusFlags, Conf_File);
 
 	debugPrintMode = GetPrivateProfileIntA("Debug", "Debug Logging Mode", debugPrintMode, Conf_File);
+	traceEnabled = 0!=GetPrivateProfileIntA("Debug", "Load Debug Tracing", traceEnabled, Conf_File);
 
 	if (RWSaveWindowPos)
 	{
@@ -2397,6 +2411,8 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	if(debugPrintMode==1 || IsDebuggerPresent())
 		MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==1)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_DEBUGGER, "", "Send to Debugger", 0);
 	MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==2)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_LOGFILE, "", "Write to Log File", 0);
+	InsertMenu(DebugLogging, i++, MF_SEPARATOR, NULL, NULL);
+	MENU_L(DebugLogging, i++, Flags | ((!traceEnabled)?MF_CHECKED:MF_UNCHECKED) | (started?MF_GRAYED:0), ID_DEBUGLOG_TOGGLETRACEENABLE, "", "Disable Tracing (for faster startup)", "can't change while running");
 	InsertMenu(DebugLogging, i++, MF_SEPARATOR, NULL, NULL);
 	MENU_L(DebugLogging, i++, Flags | MF_POPUP, (UINT)DebugLoggingInclude, "", "&Print Categories", 0);
 	MENU_L(DebugLogging, i++, Flags | MF_POPUP, (UINT)DebugLoggingTrace, "", "&Trace Categories", 0);
