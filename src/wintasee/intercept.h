@@ -197,9 +197,21 @@ enum { s_isDebug = false };
 #define VTHOOKRIID(x,n) case IID_I##x##n##_Data1: if(IID_I##x##n == riid) if(My##x<I##x##n>::Hook(reinterpret_cast<I##x##n*>(*ppvOut))) (uncheckedFastNew&&!s_isDebug || debugprintf("HOOKED COM INTERFACE: I" #x #n " (0x%X)\n", *ppvOut)); break
 #define VTHOOKRIID2(x,n,n2) case IID_I##x##n##_Data1: if(IID_I##x##n == riid) if(My##x<I##x##n2>::Hook(reinterpret_cast<I##x##n2*>(*ppvOut))) (uncheckedFastNew&&!s_isDebug || debugprintf("HOOKED COM INTERFACE: I" #x #n " (0x%X)\n", *ppvOut)); break
 #define VTHOOKRIID3(i,my) case IID_##i##_Data1: if(IID_##i == riid) if(my::Hook(reinterpret_cast<i*>(*ppvOut))) (uncheckedFastNew&&!s_isDebug || debugprintf("HOOKED COM INTERFACE: " #i " (0x%X)\n", *ppvOut)); break
+#define VTHOOKRIID3MULTI3(i,my) case IID_##i##_Data1: if(IID_##i == riid) { BOOL v = 0; i* pv = reinterpret_cast<i*>(*ppvOut); \
+	if(!v) v = my<0>::Hook(pv); if(!v) v = my<1>::Hook(pv); if(!v) v = my<2>::Hook(pv); \
+	if(!(v<=0)) (uncheckedFastNew&&!s_isDebug || debugprintf("HOOKED COM INTERFACE: " #i " (0x%X)\n", *ppvOut)); }	break
+//#define VTHOOKRIID3MULTI8(i,my) case IID_##i##_Data1: if(IID_##i == riid) { BOOL v = 0; i* pv = reinterpret_cast<i*>(*ppvOut); \
+//	if(!v) v = my<0>::Hook(pv); if(!v) v = my<1>::Hook(pv); \
+//	if(!v) v = my<2>::Hook(pv); if(!v) v = my<3>::Hook(pv); \
+//	if(!v) v = my<4>::Hook(pv); if(!v) v = my<5>::Hook(pv); \
+//	if(!v) v = my<6>::Hook(pv); if(!v) v = my<7>::Hook(pv); \
+//	if(!(v<=0)) (uncheckedFastNew&&!s_isDebug || debugprintf("HOOKED COM INTERFACE: " #i " (0x%X)\n", *ppvOut)); }	break
+//#define VTHOOKRIID4(iid,iface,my) case iid##_Data1: if(iid == riid) if(my::Hook(reinterpret_cast<iface*>(*ppvOut))) (uncheckedFastNew&&!s_isDebug || debugprintf("HOOKED COM INTERFACE: " #iid " (0x%X)\n", *ppvOut)); break
 #define IGNOREHOOKRIID(x,n) case IID_I##x##n##_Data1: if(IID_I##x##n == riid) debugprintf("IGNORED COM INTERFACE: I" #x #n " (0x%X)\n", *ppvOut); break
 #define VTHOOKFUNC(i,x) HookVTable(obj, offsetof_virtual(&i::x), (FARPROC)My##x, (FARPROC&)x, __FUNCTION__": " #x)
 #define VTHOOKFUNC2(i,x,x2) HookVTable(obj, offsetof_virtual(&i::x2), (FARPROC)My##x, (FARPROC&)x, __FUNCTION__": " #x)
+//#define VTHOOKFUNC3(i,x) HookVTable(obj, offsetof_virtual(&i::x), (FARPROC)My##x, (FARPROC&)Orig##x, __FUNCTION__": " #x)
+//#define VTHOOKFUNC4(i,x,my,orig) HookVTable(obj, offsetof_virtual(&i::x), (FARPROC)my, (FARPROC&)orig, __FUNCTION__": " #x)
 
 // use for COM functions that shouldn't get called
 #define IMPOSSIBLE_IMPL { debugprintf("IMPOSSIBLE: " __FUNCTION__ " called.\n"); return 0; }

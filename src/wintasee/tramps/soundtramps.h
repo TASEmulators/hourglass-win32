@@ -36,6 +36,8 @@ TRAMPFUNC MMRESULT WINAPI waveOutWrite(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh) T
 
 #define Beep TrampBeep
 TRAMPFUNC BOOL WINAPI Beep(DWORD dwFreq, DWORD dwDuration) TRAMPOLINE_DEF
+#define MessageBeep TrampMessageBeep
+TRAMPFUNC BOOL WINAPI MessageBeep(UINT uType) TRAMPOLINE_DEF
 #define PlaySoundA TrampPlaySoundA
 TRAMPFUNC BOOL WINAPI PlaySoundA(LPCSTR pszSound, HMODULE hmod, DWORD fdwSound) TRAMPOLINE_DEF
 #define PlaySoundW TrampPlaySoundW

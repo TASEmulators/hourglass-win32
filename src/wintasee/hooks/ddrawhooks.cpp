@@ -876,6 +876,8 @@ struct MyDirectDrawSurface
 
 	static void BackupVideoMemory(DIRECTDRAWSURFACEN* pThis)
 	{
+		if(!videoMemoryBackupDirty[pThis])
+			return;
 		DDSURFACEDESCN desc = { sizeof(DDSURFACEDESCN) };
 		if(SUCCEEDED(GetCaps(pThis, &desc.ddsCaps)))
 		{

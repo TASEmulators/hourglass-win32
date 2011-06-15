@@ -707,10 +707,13 @@ static int aviSplitDiscardCount = 0;
 static int requestedAviSplitCount = 0;
 /*static*/ int usedThreadMode = -1;
 static int windowActivateFlags = 0;
+int storeVideoMemoryInSavestates = 1;
+int storeGuardedPagesInSavestates = 1;
 int forceWindowed = 1;
 int truePause = 0;
 int onlyHookChildProcesses = 0;
 int advancePastNonVideoFrames = 0;
+bool advancePastNonVideoFramesConfigured = false;
 int audioFrequency = 44100;
 int audioBitsPerSecond = 16;
 int audioChannels = 2;
@@ -1176,6 +1179,7 @@ SharedDataHandle* FindMatchingDataBlock(SaveState::MemoryRegion& region)
 
 bool movienameCustomized = false;
 
+CRITICAL_SECTION g_gameHWndsCS;
 
 std::set<HWND> gameHWnds;
 HANDLE hGameProcess = 0;
@@ -1436,7 +1440,7 @@ void SaveGameStatePhase2(int slot)
 			// if it's not writable (and committed) then assume/hope it doesn't need to be saved
 			//if(((mbi.Protect & PAGE_READWRITE) || (mbi.Protect & PAGE_EXECUTE_READWRITE) || (mbi.Protect & PAGE_WRITECOPY) || (mbi.Protect & PAGE_EXECUTE_WRITECOPY))
 			if(((mbi.Protect & PAGE_READWRITE) || (mbi.Protect & PAGE_EXECUTE_READWRITE))
-			//&& !(mbi.Protect & PAGE_GUARD)
+			&& (!(mbi.Protect & PAGE_GUARD) || storeGuardedPagesInSavestates)
 			&& (mbi.State & MEM_COMMIT)
 			)
 			{
@@ -1669,15 +1673,17 @@ void LoadGameStatePhase2(int slot)
 {
 	AutoCritSect cs(&g_processMemCS);
 
-	stateLoaded = true;
-	SendTASFlags();
-
 	SaveState& state = savestates[slot];
 	if(!state.valid)
 	{
 		debugprintf("NO STATE %d TO LOAD\n", slot);
+		stateLoaded = -1;
+		SendTASFlags();
 		return;
 	}
+
+	stateLoaded = true;
+	SendTASFlags();
 
 	if(state.stale)
 	{
@@ -2017,6 +2023,7 @@ void SendTASFlags()
 		debugPrintMode,
 		timescale, timescaleDivisor,
 		allowLoadInstalledDlls, allowLoadUxtheme,
+		storeVideoMemoryInSavestates,
 		includeLogFlags|traceLogFlags,
 		excludeLogFlags,
 	};
@@ -2034,15 +2041,18 @@ bool InputHasFocus(bool isHotkeys)
 		return true;
 
 	HWND curHWnd = GetForegroundWindow();
-	bool isGameWindow = gameHWnds.find(curHWnd) != gameHWnds.end();
-	
-	if(((flags & FOCUS_FLAG_TASER) && (curHWnd == hWnd))
-	|| ((flags & FOCUS_FLAG_TASEE) && (isGameWindow || (started && gameHWnds.empty())))
-	|| ((flags & FOCUS_FLAG_OTHER) && (curHWnd != hWnd && !isGameWindow)))
 	{
-		return true;
+		AutoCritSect cs(&g_gameHWndsCS);
+		bool isGameWindow = gameHWnds.find(curHWnd) != gameHWnds.end();
+		
+		if(((flags & FOCUS_FLAG_TASER) && (curHWnd == hWnd))
+		|| ((flags & FOCUS_FLAG_TASEE) && (isGameWindow || (started && gameHWnds.empty())))
+		|| ((flags & FOCUS_FLAG_OTHER) && (curHWnd != hWnd && !isGameWindow)))
+		{
+			return true;
+		}
+		return false;
 	}
-	return false;
 }
 
 
@@ -4195,7 +4205,10 @@ void ReceiveFrameRate(const char* fpsAsString)
 void ReceiveHWND(DWORD hwndAsInt)
 {
 	HWND hwnd = (HWND)hwndAsInt;
-	gameHWnds.insert(hwnd);
+	{
+		AutoCritSect cs(&g_gameHWndsCS);
+		gameHWnds.insert(hwnd);
+	}
 }
 
 #if 0 // code for PrintPrivileges, disabled since it was only for diagnostic purposes, maybe useful for debugging privilege problems if they happen on a new OS
@@ -6236,7 +6249,10 @@ static void DebuggerThreadFuncCleanup(HANDLE threadHandleToClose, HANDLE hProces
 	remoteLastFrameSoundInfo = 0;
 
 	hGameProcess = 0;
-	gameHWnds.clear();
+	{
+		AutoCritSect cs(&g_gameHWndsCS);
+		gameHWnds.clear();
+	}
 
 	trustedModuleInfos.clear();
 	injectedDllModuleInfo.path.clear();
@@ -6376,7 +6392,7 @@ doneterminate:
 		{
 		case (DWORD)SUCCESSFUL_EXITCODE: debugprintf("game process exited (terminated successfully)\n"); break;
 		case (DWORD)FORCED_EXITCODE:     debugprintf("game process exited (terminated forcefully)\n"); break;
-		case STILL_ACTIVE:               debugprintf("game process exited? (failed to terminate so far)\n"); break;
+		case STILL_ACTIVE:               debugprintf("game process exited? (terminated implicitly)\n"); break;
 		default: {
 			const char* desc = ExceptionCodeToDescription(exitcode, NULL);
 			if(desc)
@@ -7040,10 +7056,14 @@ restartgame:
 							static const char* mainmsg = "The game crashed...\n";
 							static const char* waitskipmsg = "If this happens when fast-forwarding, try disabling \"Wait Skip\" in \"Misc > Fast-Forward Options\".\n";
 							static const char* multidisablemsg = "If this happens sometimes randomly, try switching Multithreading to \"Disable\" in \"Misc > Multithreading Mode\".\n";
+							static const char* dsounddisablemsg = "Or choose \"Sound > Disable DirectSound Creation\" if the game doesn't work without Multithreading on.\n";
+							static const char* dsounddisablemsg2 = "If this happens sometimes randomly, try choosing \"Sound > Disable DirectSound Creation\".\n";
 							char msg [8096];
-							sprintf(msg, "%s%s%s", mainmsg,
+							sprintf(msg, "%s%s%s%s%s", mainmsg,
 								(fastforward && (fastForwardFlags & FFMODE_WAITSKIP)) ? waitskipmsg : "",
-								(s_lastFrameCount > 30 && threadMode != 0 && !(aviMode & 2)) ? multidisablemsg : ""
+								(s_lastFrameCount > 30 && threadMode != 0 && !(aviMode & 2)) ? multidisablemsg : "",
+								(s_lastFrameCount > 30 && threadMode != 0 && !(aviMode & 2) && !(emuMode & EMUMODE_VIRTUALDIRECTSOUND)) ? dsounddisablemsg : "",
+								(s_lastFrameCount > 30 && threadMode != 0 && (aviMode & 2) && !(emuMode & EMUMODE_VIRTUALDIRECTSOUND)) ? dsounddisablemsg2 : ""
 							);
 							debugprintf(msg);
 #ifndef _DEBUG
@@ -7338,6 +7358,9 @@ earlyAbort:
 	return 0; // this works fine on Windows XP but not on Vista?
 }
 
+
+HANDLE hAfterDebugThreadExitThread = NULL;
+
 static DWORD WINAPI AfterDebugThreadExitThread(LPVOID lpParam)
 {
 	// clear out savestate memory (it's useless now anyway)
@@ -7346,7 +7369,10 @@ static DWORD WINAPI AfterDebugThreadExitThread(LPVOID lpParam)
 
 	// and clear out some other memory
 	ClearAndDeallocateContainer(dllBaseToFilename);
-	ClearAndDeallocateContainer(gameHWnds);
+	{
+		AutoCritSect cs(&g_gameHWndsCS);
+		ClearAndDeallocateContainer(gameHWnds);
+	}
 	ClearAndDeallocateContainer(hGameThreads);
 	ClearAndDeallocateContainer(gameThreadIdList);
 	ClearAndDeallocateContainer(trustedModuleInfos);
@@ -7358,17 +7384,111 @@ static DWORD WINAPI AfterDebugThreadExitThread(LPVOID lpParam)
 	EnableDisablePlayRecordButtons(hWnd);
 	CheckDialogChanges(0); // update dialog to reflect movie being closed
 
+	hAfterDebugThreadExitThread = NULL;
+
 	return 0;
 }
 
 void OnAfterDebugThreadExit()
 {
+	if(hAfterDebugThreadExitThread)
+		return;
+
 	afterDebugThreadExit = false;
 
 	// let's run this cleanup code on a separate thread to keep the rest of the ui responsive
 	// in case it happens to take a long time (it shouldn't, but who knows when it comes to deallocating memory)
-	CreateThread(NULL, 0, AfterDebugThreadExitThread, NULL, 0, NULL);
+	hAfterDebugThreadExitThread = CreateThread(NULL, 0, AfterDebugThreadExitThread, NULL, 0, NULL);
 }
+
+
+void TerminateDebuggerThread(DWORD maxWaitTime)
+{
+	if(!debuggerThread)
+		return;
+	HANDLE hDebuggerThread = debuggerThread;
+	terminateRequest = true;
+rewait:
+	int prevTime = timeGetTime();
+	while(debuggerThread && ((timeGetTime() - prevTime) < maxWaitTime))
+	{
+		Sleep(10);
+
+		// we have to handle messages here otherwise we could get in a deadlock situation
+		// where the debugger thread is waiting for us to respond to a message (like SetWindowText)
+		// while we're waiting here for it to finish.
+		MSG msg;
+		int count = 0;
+		while(count < 4 && PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			DispatchMessage(&msg);
+			count++;
+		}
+	}
+	if(debuggerThread)
+	{
+		int result = CustomMessageBox("The game-controlling thread is taking longer than expected to exit.\nClick Cancel to terminate it immediately (this might cause problems),\nor click Retry to check again and wait a few more seconds if needed.", "Stopping Game", MB_RETRYCANCEL | MB_DEFBUTTON1 | MB_ICONWARNING);
+		if(result == IDRETRY)
+		{
+			if(maxWaitTime < 4000)
+				maxWaitTime = 4000;
+			maxWaitTime += 1000;
+			goto rewait;
+		}
+	}
+	if(debuggerThread || WaitForSingleObject(hDebuggerThread, 100) == WAIT_TIMEOUT)
+	{
+		//debugprintf("WARNING: had to force terminate debugger thread after %d seconds\n", (timeGetTime() - prevTime)/1000);
+		//if(IsDebuggerPresent())
+		//{
+		//	_asm{int 3} // please check to see where the DebuggerThreadFunc thread is frozen
+		//}
+		TerminateThread(hDebuggerThread, -1);
+		DebuggerThreadFuncCleanup(INVALID_HANDLE_VALUE, hGameProcess);
+		debuggerThread = 0;
+	}
+}
+
+void WaitForOtherThreadToTerminate(HANDLE& thread, DWORD maxWaitTime)
+{
+	if(!thread)
+		return;
+	HANDLE hThread = thread;
+rewait:
+	int prevTime = timeGetTime();
+	while(thread && ((timeGetTime() - prevTime) < maxWaitTime))
+	{
+		Sleep(10);
+
+		// we have to handle messages here otherwise we could get in a deadlock situation
+		// where the other thread is waiting for us to respond to a message (like SetWindowText)
+		// while we're waiting here for it to finish.
+		MSG msg;
+		int count = 0;
+		while(count < 4 && PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+		{
+			DispatchMessage(&msg);
+			count++;
+		}
+	}
+	if(thread)
+	{
+		int result = CustomMessageBox("A thread is taking longer than expected to exit.\nClick Cancel to terminate it immediately (this might cause problems),\nor click Retry to check again and wait a few more seconds if needed.", "Stopping", MB_RETRYCANCEL | MB_DEFBUTTON1 | MB_ICONWARNING);
+		if(result == IDRETRY)
+		{
+			if(maxWaitTime < 4000)
+				maxWaitTime = 4000;
+			maxWaitTime += 1000;
+			goto rewait;
+		}
+	}
+	if(thread || WaitForSingleObject(hThread, 100) == WAIT_TIMEOUT)
+	{
+		TerminateThread(hThread, -1);
+		thread = NULL;
+	}
+}
+
 
 void PrepareForExit()
 {
@@ -7383,8 +7503,8 @@ void PrepareForExit()
 	if(unsaved)
 		SaveMovieToFile(moviefilename);
 	Save_Config();
-	if(debuggerThread)
-		SuspendThread(debuggerThread); // otherwise the thread keeps running while we're exiting and can crash
+	TerminateDebuggerThread(6500);
+	WaitForOtherThreadToTerminate(hAfterDebugThreadExitThread, 5000);
 }
 
 
@@ -7477,6 +7597,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	InitializeCriticalSection(&s_fqvCS);
 	InitializeCriticalSection(&g_processMemCS);
 	InitializeCriticalSection(&g_debugPrintCS);
+	InitializeCriticalSection(&g_gameHWndsCS);
 	InitRamSearch();
 
 	Load_Config();
@@ -7734,6 +7855,7 @@ void BringGameWindowToForeground()
 	if(!started)
 		return;
 	std::set<HWND>::iterator iter;
+	EnterCriticalSection(&g_gameHWndsCS);
 	for(iter = gameHWnds.begin(); iter != gameHWnds.end();)
 	{
 		HWND gamehwnd = *iter;
@@ -7741,10 +7863,17 @@ void BringGameWindowToForeground()
 		iter++;
 		if((style & (WS_VISIBLE|WS_CAPTION)) == (WS_VISIBLE|WS_CAPTION) || iter == gameHWnds.end())
 		{
-			SetForegroundWindow(gamehwnd);
-			break;
+			RECT rect;
+			GetClientRect(gamehwnd, &rect);
+			if(rect.bottom - rect.top > 10)
+			{
+				LeaveCriticalSection(&g_gameHWndsCS);
+				SetForegroundWindow(gamehwnd);
+				return;
+			}
 		}
 	}
+	LeaveCriticalSection(&g_gameHWndsCS);
 }
 
 //BOOL CALLBACK ViewportDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
@@ -7855,48 +7984,22 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				char path [MAX_PATH+1];
 				if(!*exefilename)
 				{
-					// mostly-temp stuff, should probably move the info somewhere though
-				strcpy(path, thisprocessPath);
-				path[MAX_PATH-23] = 0;
-				strcat(path, "\\..\\game\\Doukutsu.exe"); // works well. specify 50 fps. seems to have a pretty solid (or at least forgiving) game engine
-				//strcat(path, "\\..\\game_1000\\Doukutsu.exe");
-				//strcat(path, "\\..\\la-mulana\\lamulana.exe"); // works, slightly varying framerate (specify 50 fps, runs at 30.3 usually, 50 sometimes)
-				//strcat(path, "\\..\\herocore\\herocore.exe"); // works well, specify 40 fps, filesystem sync would help but an record erasing save slot
-				//strcat(path, "\\..\\iji\\iji.exe"); // works, specify 30 fps, takes a while to load (splash screen doesn't render yet), is heavy on memory for savestates and slightly unstable (especially when multithreading isn't disabled ... can freeze on startup too but not usually), music thread skipping issues. directshow music thread has main thread sometimes waiting on it, which means real multithreading problems. but, those seem dealt with now, and it even works well if you disabling multithreading (with same sync as wrap mode, it probably helps stability too). fast-forward works well also.
-				//strcat(path, "\\..\\tumiki-fighters\\tf.exe"); // works ok now, including sync and avi and savestate. doesn't work with multithreading disabled (use wrap mode). slightly crashy but much less than before and doesn't bring down whole computer anymore. is an opengl game, running in d3d8 now. myopengl.inl line segment code needs rewrite to use quads to implement line widths
-				//strcat(path, "\\..\\bmd\\bmd.exe"); // works (only if options are set to windowed mode with timer-based speed, for now... the mechanism this game uses for switching to fullscreen is a mystery and DxWnd misses it too), specify 60 fps although intro assumes higher framerate than rest of game and thus takes a while
-				//strcat(path, "\\..\\pcb\\Th07.exe"); // works pretty well. there's no music if you switch the in-game music option to MIDI. WAV music goes to wrong position somehow after loading savestates, need to fix that. sound glitches slightly if framerate dips, so to ensure high-quality audio for AVI, capture audio-only in fast-forward mode. warning: game won't boot if you select 50 fps, needs to be 60 fps
-				//strcat(path, "\\..\\rescue_the_beagles\\beagles.exe"); // works ok. is an opengl game.
-				//strcat(path, "\\..\\ikachan\\ikachan\\dxIka.exe"); // works, divide-by-zero hack was needed to fix levelup sequences, and messagebox skip hack, rest of game works fine like cave story
-				//strcat(path, "\\..\\SuperMarisaLand\\marisaland.exe"); // some minor savestate texture problems
-				//strcat(path, "\\..\\eversion\\eversion.exe"); // somewhat crashy due to music thread but you can disable multithreading to mostly fix that
-				//strcat(path, "\\..\\SORRv5\\SorR.exe"); // seems to work pretty well, haven't tested much. uses SDL's GDI renderer (which calls BitBlt). might be like eversion (including: drawing breaks after loading a savestate unless sdl is hooked, should fix that so non-sdl gdi games can work, the problem is probably due to frame boundary while source hdc is locked/referenced)
-				//strcat(path, "\\..\\MegaMari\\MegaMari.exe"); // seems to work well, like some of these other games it can crash but disabling threads while TASing works around that. it's a d3d9 game
-				//strcat(path, "\\..\\rg_105\\RotateGear.exe"); // seems to work well, relies on proper hooking of dlls that get loaded and unloaded multiple times
-				//strcat(path, "\\..\\lyle\\Lyle in Cube Sector.exe"); // works, still some annoying problems with dirty regions and broken saves in dialog screens due to HDC lock or unvirtualized handles
-				//strcat(path, "\\..\\kaiten-patissier\\Present Panic.exe"); // seems to work I guess
-				//strcat(path, "\\..\\warningforever\\wf.exe"); // works, requires timers sync mode to be set to asynchronous, movies still seem to sync though. no real fast-forward support.
-				//strcpy(path, "C:\\Downloads\\Rosenkreuzstilette Freudenstachel Demo\\rks_fs_trial\\rks_fs_trial.exe"); // d3d9 game, works except requires desync-causing settings to run due to the 100s of image loading threads. earlier versions of this game or its prequel (d3d7 based?) seem to work perfectly though.
-//				strcpy(path, "C:\\Program Files\\garden\\garden.exe"); // allegro game, doesn't work yet, but it's only a matter of time since both the game and the engine are fully open-source
-//				strcat(path, "\\..\\iwbtgbeta_slomo_.exe"); // weird game engine, very variable framerate, some graphics refresh issues due to it using dirty regions, no avi support yet, usually requires restarting wintaser between launches, may get into a mode where savestates crash (enabling "only control child processes" might help)
-//				strcat(path, "\\..\\ed\\Eternal Daughter.exe"); // mostly works, has some graphics refresh issues due to it using dirty regions, music not recorded to avi due to MIDI not being supported yet. savestates don't work across load/screen boundaries (due to the state of system resources not being represented in savestates yet)
-//				strcat(path, "\\..\\withinadeepforest_114\\Within A Deep Forest.exe"); // needs some mouse controls (not implemented yet), some graphics refresh issues due to it using dirty regions
-//				strcat(path, "\\..\\FLaiL\\FLaiL.exe"); // was working before except mouse support, probably temporarily broken but shouldn't be hard to fix (may need to support more messages in GetMessageActionFlags or tweak waiting behavior in WaitForMultipleObjects or something)
-//				strcat(path, "\\..\\shotgun_funfun.exe");
-//				strcat(path, "\\..\\Pinball\\pinball.exe");
-//				strcpy(path, "C:\\Program Files\\Marble Blast Gold Demo\\MarbleBlastGoldDemo.exe"); // doesn't work for a few reasons, kind of starts up in multithreaded enabled mode and may only be missing mouse control, is picky about time function return values (especially the year in GetLocalTime)
-//				strcpy(path, "C:\\Downloads\\vvvvvv_demo.exe");
-//				strcpy(path, "C:\\Program Files\\ElastoMania111\\Elma.exe"); // doesn't quite work, needs 8-bit color (annoying, should fix that), renders by locking and unlocking frontbuffer directly (that's not hooked as a frame boundary yet so time only crawls along)
-//				strcat(path, "\\..\\temporal\\temporal.exe"); // not yet either. problems starting up apparently due to fullscreen mode and 16-bit color
-//				strcpy(path, "firefox \\..\\lastcanopy.swf"); // arguments not supported yet, and probably tons of other reasons it doesn't work
+					path[0] = 0;
+					//strcpy(path, thisprocessPath);
+					//path[MAX_PATH-23] = 0;
+ 					//strcat(path, "\\..\\game\\Doukutsu.exe");
 				}
 				else
 				{
 					strcpy(path, exefilename);
 				}
 				AbsolutifyPath(path, MAX_PATH);
+				char temp_moviefilename [MAX_PATH+1];
+				strcpy(temp_moviefilename, moviefilename);
+				movienameCustomized = false;
 				SetWindowText(GetDlgItem(hDlg, IDC_EDIT_EXE), path);
-				SetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), moviefilename);
+				SetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), temp_moviefilename);
+				movienameCustomized = false;
 				SetFocus(GetDlgItem(hDlg, IDC_BUTTON_RECORD));
 
 				EnableDisablePlayRecordButtons(hDlg);
@@ -8287,6 +8390,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 
 				case ID_INPUT_SKIPLAGFRAMES:
 					advancePastNonVideoFrames = !advancePastNonVideoFrames;
+					advancePastNonVideoFramesConfigured = true;
 					mainMenuNeedsRebuilding = true;
 					break;
 
@@ -8430,45 +8534,55 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				case ID_EXCLUDE_LCF_TIMERS: excludeLogFlags ^= LCF_TIMERS; tasFlagsDirty = true; break;
 
 				case ID_TRACE_LCF_NONE: traceLogFlags = 0; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_ALL: traceLogFlags = ~LCF_FREQUENT; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_UNTESTED: traceLogFlags ^= LCF_UNTESTED; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_DESYNC: traceLogFlags ^= LCF_DESYNC; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_FREQUENT: traceLogFlags ^= LCF_FREQUENT; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_ERROR: traceLogFlags ^= LCF_ERROR; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_TODO: traceLogFlags ^= LCF_TODO; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_FRAME: traceLogFlags ^= LCF_FRAME; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_HOOK: traceLogFlags ^= LCF_HOOK; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_TIMEFUNC: traceLogFlags ^= LCF_TIMEFUNC; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_TIMESET: traceLogFlags ^= LCF_TIMESET; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_TIMEGET: traceLogFlags ^= LCF_TIMEGET; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_SYNCOBJ: traceLogFlags ^= LCF_SYNCOBJ; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_WAIT: traceLogFlags ^= LCF_WAIT; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_SLEEP: traceLogFlags ^= LCF_SLEEP; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_DDRAW: traceLogFlags ^= LCF_DDRAW; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_D3D: traceLogFlags ^= LCF_D3D; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_OGL: traceLogFlags ^= LCF_OGL; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_GDI: traceLogFlags ^= LCF_GDI; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_SDL: traceLogFlags ^= LCF_SDL; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_DINPUT: traceLogFlags ^= LCF_DINPUT; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_KEYBOARD: traceLogFlags ^= LCF_KEYBOARD; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_MOUSE: traceLogFlags ^= LCF_MOUSE; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_JOYPAD: traceLogFlags ^= LCF_JOYPAD; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_DSOUND: traceLogFlags ^= LCF_DSOUND; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_WSOUND: traceLogFlags ^= LCF_WSOUND; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_PROCESS: traceLogFlags ^= LCF_PROCESS; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_MODULE: traceLogFlags ^= LCF_MODULE; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_MESSAGES: traceLogFlags ^= LCF_MESSAGES; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_WINDOW: traceLogFlags ^= LCF_WINDOW; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_FILEIO: traceLogFlags ^= LCF_FILEIO; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_REGISTRY: traceLogFlags ^= LCF_REGISTRY; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_THREAD: traceLogFlags ^= LCF_THREAD; tasFlagsDirty = true; break;
-				case ID_TRACE_LCF_TIMERS: traceLogFlags ^= LCF_TIMERS; tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_ALL: traceLogFlags = ~LCF_FREQUENT; traceEnabled = true; tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_UNTESTED: traceLogFlags ^= LCF_UNTESTED; if(traceLogFlags & LCF_UNTESTED){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_DESYNC: traceLogFlags ^= LCF_DESYNC; if(traceLogFlags & LCF_DESYNC){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_ERROR: traceLogFlags ^= LCF_ERROR; if(traceLogFlags & LCF_ERROR){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_TODO: traceLogFlags ^= LCF_TODO; if(traceLogFlags & LCF_TODO){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_FRAME: traceLogFlags ^= LCF_FRAME; if(traceLogFlags & LCF_FRAME){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_HOOK: traceLogFlags ^= LCF_HOOK; if(traceLogFlags & LCF_HOOK){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_TIMEFUNC: traceLogFlags ^= LCF_TIMEFUNC; if(traceLogFlags & LCF_TIMEFUNC){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_TIMESET: traceLogFlags ^= LCF_TIMESET; if(traceLogFlags & LCF_TIMESET){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_TIMEGET: traceLogFlags ^= LCF_TIMEGET; if(traceLogFlags & LCF_TIMEGET){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_SYNCOBJ: traceLogFlags ^= LCF_SYNCOBJ; if(traceLogFlags & LCF_SYNCOBJ){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_WAIT: traceLogFlags ^= LCF_WAIT; if(traceLogFlags & LCF_WAIT){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_SLEEP: traceLogFlags ^= LCF_SLEEP; if(traceLogFlags & LCF_SLEEP){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_DDRAW: traceLogFlags ^= LCF_DDRAW; if(traceLogFlags & LCF_DDRAW){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_D3D: traceLogFlags ^= LCF_D3D; if(traceLogFlags & LCF_D3D){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_OGL: traceLogFlags ^= LCF_OGL; if(traceLogFlags & LCF_OGL){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_GDI: traceLogFlags ^= LCF_GDI; if(traceLogFlags & LCF_GDI){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_SDL: traceLogFlags ^= LCF_SDL; if(traceLogFlags & LCF_SDL){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_DINPUT: traceLogFlags ^= LCF_DINPUT; if(traceLogFlags & LCF_DINPUT){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_KEYBOARD: traceLogFlags ^= LCF_KEYBOARD; if(traceLogFlags & LCF_KEYBOARD){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_MOUSE: traceLogFlags ^= LCF_MOUSE; if(traceLogFlags & LCF_MOUSE){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_JOYPAD: traceLogFlags ^= LCF_JOYPAD; if(traceLogFlags & LCF_JOYPAD){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_DSOUND: traceLogFlags ^= LCF_DSOUND; if(traceLogFlags & LCF_DSOUND){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_WSOUND: traceLogFlags ^= LCF_WSOUND; if(traceLogFlags & LCF_WSOUND){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_PROCESS: traceLogFlags ^= LCF_PROCESS; if(traceLogFlags & LCF_PROCESS){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_MODULE: traceLogFlags ^= LCF_MODULE; if(traceLogFlags & LCF_MODULE){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_MESSAGES: traceLogFlags ^= LCF_MESSAGES; if(traceLogFlags & LCF_MESSAGES){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_WINDOW: traceLogFlags ^= LCF_WINDOW; if(traceLogFlags & LCF_WINDOW){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_FILEIO: traceLogFlags ^= LCF_FILEIO; if(traceLogFlags & LCF_FILEIO){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_REGISTRY: traceLogFlags ^= LCF_REGISTRY; if(traceLogFlags & LCF_REGISTRY){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_THREAD: traceLogFlags ^= LCF_THREAD; if(traceLogFlags & LCF_THREAD){traceEnabled = true;} tasFlagsDirty = true; break;
+				case ID_TRACE_LCF_TIMERS: traceLogFlags ^= LCF_TIMERS; if(traceLogFlags & LCF_TIMERS){traceEnabled = true;} tasFlagsDirty = true; break;
 
 
 				case ID_DEBUGLOG_DISABLED: debugPrintMode = 0; tasFlagsDirty = true; break;
 				case ID_DEBUGLOG_DEBUGGER: debugPrintMode = 1; tasFlagsDirty = true; break;
 				case ID_DEBUGLOG_LOGFILE: debugPrintMode = 2; tasFlagsDirty = true; break;
-				case ID_DEBUGLOG_TOGGLETRACEENABLE: traceEnabled = !traceEnabled; break;
+				
+				case ID_DEBUGLOG_TOGGLETRACEENABLE: traceEnabled = !traceEnabled; mainMenuNeedsRebuilding = true; break;
+				case ID_PERFORMANCE_TOGGLESAVEVIDMEM: storeVideoMemoryInSavestates = !storeVideoMemoryInSavestates; tasFlagsDirty = true; break;
+				case ID_PERFORMANCE_TOGGLESAVEGUARDED: storeGuardedPagesInSavestates = !storeGuardedPagesInSavestates; mainMenuNeedsRebuilding = true; break;
+				case ID_PERFORMANCE_DEALLOCSTATES:
+					for(int i = 0; i < maxNumSavestates; i++)
+						savestates[i].Deallocate();
+					break;
+				case ID_PERFORMANCE_DELETESTATES:
+					for(int i = 0; i < maxNumSavestates; i++)
+						savestates[i].Clear();
+					break;
 
 				case ID_FILES_LOADSTATE_1:
 				case ID_FILES_LOADSTATE_2:
@@ -8653,37 +8767,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						//CheckDlgButton(hDlg, IDC_AVIVIDEO, aviMode & 1);
 						//CheckDlgButton(hDlg, IDC_AVIAUDIO, aviMode & 2);
 						bool wasPlayback = playback;
-						HANDLE hDebuggerThread = debuggerThread;
-						terminateRequest = true;
-						int prevTime = timeGetTime();
-						while(debuggerThread && ((timeGetTime() - prevTime) < 5000))
-						{
-							Sleep(10);
-
-							// we have to handle messages here otherwise we could get in a deadlock situation
-							// where the debugger thread is waiting for us to respond to a message (like SetWindowText)
-							// while we're waiting here for it to finish.
-							MSG msg;
-							int count = 0;
-							while(count < 4 && PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-							{
-								if(PreTranslateMessage(msg))
-									TranslateMessage(&msg);
-								DispatchMessage(&msg);
-								count++;
-							}
-						}
-						if(debuggerThread || WaitForSingleObject(hDebuggerThread, 100) == WAIT_TIMEOUT)
-						{
-							debugprintf("WARNING: had to force terminate debugger thread after %d seconds\n", (timeGetTime() - prevTime)/1000);
-							if(IsDebuggerPresent())
-							{
-								_asm{int 3} // please check to see where the DebuggerThreadFunc thread is frozen
-							}
-							TerminateThread(hDebuggerThread, -1);
-							DebuggerThreadFuncCleanup(INVALID_HANDLE_VALUE, hGameProcess);
-							debuggerThread = 0;
-						}
+						TerminateDebuggerThread(6500);
 						if(unsaved)
 							SaveMovieToFile(moviefilename);
 						terminateRequest = false;
@@ -8831,6 +8915,70 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						if(file)
 						{
 							fclose(file);
+							if((!movienameCustomized) || !*moviefilename)
+							{
+								// a little hack to help people out when first selecting an exe for recording,
+								// until perhaps there's a proper ini file for such defaults
+								int newFramerate;
+								BOOL newLagskip;
+								const char* fname = GetExeFilenameWithoutPath();
+								if(!stricmp(fname, "Doukutsu.exe")
+								|| !stricmp(fname, "dxIka.exe")
+								|| !stricmp(fname, "nothing.exe")
+								|| !_strnicmp(fname, "iwbtgbeta", sizeof("iwbtgbeta")-1)
+								|| !stricmp(fname, "i_wanna_be_the_GB.exe")
+								)
+								{
+									newFramerate = 50; newLagskip = false;
+								}
+								else if(!stricmp(fname, "Lyle in Cube Sector.exe")
+								|| !stricmp(fname, "Eternal Daughter.exe")
+								|| !stricmp(fname, "Geoffrey The Fly.exe")
+								)
+								{
+									newFramerate = 50; newLagskip = true;
+								}
+								else if(!stricmp(fname, "herocore.exe"))
+								{
+									newFramerate = 40; newLagskip = false;
+								}
+								else if(!stricmp(fname, "iji.exe"))
+								{
+									newFramerate = 30; newLagskip = false;
+								}
+								else if(!stricmp(fname, "lamulana.exe"))
+								{
+									newFramerate = 60; newLagskip = true;
+								}
+								else if(!stricmp(fname, "NinjaSenki.exe"))
+								{
+									newFramerate = 60; newLagskip = false;
+
+									// extra temp: window activation is broken in this game
+									if(!(windowActivateFlags & 2))
+									{
+										windowActivateFlags |= 2;
+										tasFlagsDirty = true;
+									}
+								}
+								else // default to 60 for everything else
+								{
+									newFramerate = 60; newLagskip = false;
+								}
+								if(framerate != newFramerate && !movieFileExists)
+								{
+									tasFlagsDirty = true;
+									char str [32];
+									sprintf(str, "%d", newFramerate);
+									SetWindowText(GetDlgItem(hDlg, IDC_EDIT_FPS), str);
+								}
+								if(newLagskip != advancePastNonVideoFrames && (!advancePastNonVideoFramesConfigured || !advancePastNonVideoFrames))
+								{
+									advancePastNonVideoFrames = newLagskip;
+									advancePastNonVideoFramesConfigured = false;
+									mainMenuNeedsRebuilding = true;
+								}
+							}
 							if(!*moviefilename || !movienameCustomized) // set default movie name based on exe
 							{
 								char filename [MAX_PATH+1];
@@ -8861,10 +9009,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					{
 						GetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), moviefilename, MAX_PATH);
 						EnableDisablePlayRecordButtons(hDlg);
-						//if(HIWORD(wParam) == EN_CHANGE)
-						{
-							movienameCustomized = true;
-						}
+						movienameCustomized = (*moviefilename) != 0;
 					}
 					break;
 				}
