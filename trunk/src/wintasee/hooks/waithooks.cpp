@@ -177,6 +177,8 @@ HOOKFUNC DWORD WINAPI MyWaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds
 		//	|| (tasflags.waitSyncMode <= 1 && prevMs == 0) // hack for Rosenkreuzstilette Freudenstachel
 		)
 		{
+			if(tasflags.fastForward && dwMilliseconds > 1 && dwMilliseconds < 100 && (tasflags.fastForwardFlags & FFMODE_SLEEPSKIP)) // hack: check sleepskip instead of waitskip because waitskip is intended for riskier wait skips
+				dwMilliseconds = 1; // some games have a framerate regulator non-main thread that prevents fast-forward from working unless we do this. note that using 0 instead of 1 would give far worse results.
 			return WaitForSingleObject(hHandle, dwMilliseconds);
 		}
 		//else if(tasflags.waitSyncMode <= 1 && prevMs == 0) // hack for Rosenkreuzstilette Freudenstachel
@@ -303,6 +305,8 @@ HOOKFUNC DWORD WINAPI MyWaitForMultipleObjects(DWORD nCount, CONST HANDLE *lpHan
 		TransferWait(dwMilliseconds);
 		if(!tls_IsPrimaryThread() || tasflags.waitSyncMode == 2)
 		{
+			if(tasflags.fastForward && dwMilliseconds > 1 && dwMilliseconds < 5000 && (tasflags.fastForwardFlags & FFMODE_SLEEPSKIP)) // hack: check sleepskip instead of waitskip because waitskip is intended for riskier wait skips
+				dwMilliseconds = 1;
 		}
 		else if(tasflags.waitSyncMode == 0)
 		{

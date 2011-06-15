@@ -58,6 +58,10 @@ TRAMPFUNC BOOL WINAPI ShowWindow(HWND hWnd, int nCmdShow) TRAMPOLINE_DEF
 TRAMPFUNC BOOL WINAPI GetClientRect(HWND hWnd, LPRECT lpRect) TRAMPOLINE_DEF
 #define GetWindowRect TrampGetWindowRect
 TRAMPFUNC BOOL WINAPI GetWindowRect(HWND hWnd, LPRECT lpRect) TRAMPOLINE_DEF
+#define SetWindowTextA TrampSetWindowTextA
+TRAMPFUNC BOOL WINAPI SetWindowTextA(HWND hWnd, LPCSTR lpString) TRAMPOLINE_DEF
+#define SetWindowTextW TrampSetWindowTextW
+TRAMPFUNC BOOL WINAPI SetWindowTextW(HWND hWnd, LPCWSTR lpString) TRAMPOLINE_DEF
 
 #define GetActiveWindow TrampGetActiveWindow
 TRAMPFUNC HWND WINAPI GetActiveWindow() TRAMPOLINE_DEF

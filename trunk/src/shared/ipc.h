@@ -31,6 +31,7 @@ struct TasFlags
 	int debugPrintMode;
 	int timescale, timescaleDivisor;
 	int allowLoadInstalledDlls, allowLoadUxtheme;
+	int storeVideoMemoryInSavestates;
 	LogCategoryFlag includeLogFlags;
 	LogCategoryFlag excludeLogFlags;
 #ifdef _USRDLL

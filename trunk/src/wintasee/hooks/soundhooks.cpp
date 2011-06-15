@@ -155,7 +155,7 @@ public:
 			return E_POINTER;
 		if(riid == IID_IDirectSoundBuffer)
 			*ppvObj = (IDirectSoundBuffer*)this;
-		else if(riid == IID_IDirectSoundBuffer8)
+		else if(riid == IID_IDirectSoundBuffer8 && !m_isFakePrimary) // "IDirectSoundBuffer8 is not available for the primary buffer"
 			*ppvObj = (IDirectSoundBuffer8*)this;
 		else if(riid == IID_IDirectSound3DBuffer)
 			*ppvObj = (IDirectSound3DBuffer*)this;
@@ -241,7 +241,7 @@ public:
 		if(pdwSizeWritten)
 			*pdwSizeWritten = size;
 		if(pwfxFormat)
-			debuglog(LCF_DSOUND, __FUNCTION__ "returned format: %d %d %d\n", pwfxFormat->nSamplesPerSec, pwfxFormat->wBitsPerSample, pwfxFormat->nChannels);
+			debuglog(LCF_DSOUND, __FUNCTION__ " returned format: %d %d %d\n", pwfxFormat->nSamplesPerSec, pwfxFormat->wBitsPerSample, pwfxFormat->nChannels);
 		return DS_OK;
 	}
     STDMETHOD(GetVolume)            (LPLONG plVolume)
@@ -277,12 +277,38 @@ public:
 		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
 
 		if(waveformat)
+		{
+			debuglog(LCF_DSOUND, __FUNCTION__ " returned DSERR_ALREADYINITIALIZED.\n");
 			return DSERR_ALREADYINITIALIZED;
+		}
 
-		if(!pcDSBufferDesc || !pcDSBufferDesc->lpwfxFormat)
+		if(!pcDSBufferDesc)
+		{
+			debuglog(LCF_DSOUND|LCF_ERROR, __FUNCTION__ " returned DSERR_INVALIDPARAM.\n");
 			return DSERR_INVALIDPARAM;
+		}
 
-		SetWavFormat(pcDSBufferDesc->lpwfxFormat);
+		if(!pcDSBufferDesc->lpwfxFormat)
+		{
+			if(!m_isFakePrimary)
+			{
+				debuglog(LCF_DSOUND|LCF_ERROR, __FUNCTION__ " returned DSERR_INVALIDPARAM.\n");
+				return DSERR_INVALIDPARAM;
+			}
+			WAVEFORMATEX wfmt;
+			wfmt.nChannels = tasflags.audioChannels;
+			wfmt.nSamplesPerSec = tasflags.audioFrequency;
+			wfmt.wBitsPerSample = tasflags.audioBitsPerSecond;
+			wfmt.wFormatTag = WAVE_FORMAT_PCM;
+			wfmt.nBlockAlign = wfmt.wBitsPerSample * wfmt.nChannels / 8;
+			wfmt.nAvgBytesPerSec = wfmt.nSamplesPerSec * wfmt.nBlockAlign;
+			wfmt.cbSize = 0;
+			SetWavFormat(&wfmt);
+		}
+		else
+		{
+			SetWavFormat(pcDSBufferDesc->lpwfxFormat);
+		}
 
 		bufferSize = pcDSBufferDesc->dwBufferBytes;
 		bufferSize = min(max(bufferSize, DSBSIZE_MIN), DSBSIZE_MAX);
@@ -497,6 +523,7 @@ public:
     // IDirectSoundNotify methods
     STDMETHOD(SetNotificationPositions) (DWORD dwPositionNotifies, LPCDSBPOSITIONNOTIFY pcPositionNotifies)
 	{
+		dsounddebugprintf(__FUNCTION__ "(%d) called.\n", dwPositionNotifies);
 		if(dwPositionNotifies > DSBNOTIFICATIONS_MAX || pcPositionNotifies == NULL)
 			return DSERR_INVALIDPARAM;
 
@@ -1404,14 +1431,28 @@ public:
 	/*** IUnknown methods ***/
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj)
 	{
-		/*dsound*/debugprintf(__FUNCTION__ " called.\n");
+		dsounddebugprintf(__FUNCTION__ "(0x%X) called.\n", riid.Data1);
 		if(ppvObj)
 		{
 			if(riid == IID_IUnknown) { *ppvObj = (IUnknown*)this; AddRef(); return S_OK; }
 			if(riid == IID_IDirectSound) { *ppvObj = (IDirectSound*)this; AddRef(); return S_OK; }
 			if(IDirectSoundTraits<IDirectSoundN>::NUMBER == 8 && riid == IID_IDirectSound8) { *ppvObj = (IDirectSound8*)this; AddRef(); return S_OK; }
 		}
-		if(!m_ds) { return -1; }
+		if(!m_ds)
+		{
+			if(riid == IID_IDirectSoundSinkFactory)
+			{
+				if(!s_pEmulatedDirectSoundSinkFactory)
+					s_pEmulatedDirectSoundSinkFactory = new EmulatedDirectSoundSinkFactory();
+				if(s_pEmulatedDirectSoundSinkFactory)
+				{
+					*ppvObj = (IDirectSoundSinkFactory*)s_pEmulatedDirectSoundSinkFactory;
+					s_pEmulatedDirectSoundSinkFactory->AddRef();
+					return S_OK;
+				}
+			}
+			return E_NOINTERFACE;
+		}
 		HRESULT rv = m_ds->QueryInterface(riid, ppvObj);
 		if(SUCCEEDED(rv))
 			HookCOMInterface(riid, ppvObj);
@@ -1420,8 +1461,9 @@ public:
 
     ULONG STDMETHODCALLTYPE AddRef()
 	{
-		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
-		return m_ds ? m_ds->AddRef() : ++m_fallbackRefcount;
+		ULONG rv = m_ds ? m_ds->AddRef() : ++m_fallbackRefcount;
+		debuglog(LCF_DSOUND, __FUNCTION__ " called, returned %d.\n", rv);
+		return rv;
 	}
 
     ULONG STDMETHODCALLTYPE Release()
@@ -1576,7 +1618,7 @@ public:
 			return DS_OK;
 		}
 
-		if(!m_ds) return -1;
+		if(!m_ds) return DSERR_UNSUPPORTED;
 
 		bool hookIt = true;
 		if(is_of_type<LPDIRECTSOUNDBUFFER,MyDirectSoundBuffer<IDirectSoundBuffer8>*>(pDSBufferOriginal))
@@ -1603,31 +1645,31 @@ public:
     STDMETHOD(SetCooperativeLevel)  (HWND hwnd, DWORD dwLevel)
 	{
 		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", dwLevel);
-		if(!m_ds) return 0;
+		if(!m_ds) return DS_OK;
 		return m_ds->SetCooperativeLevel(hwnd, dwLevel);
 	}
     STDMETHOD(Compact)              ()
 	{
 		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
-		if(!m_ds) return 0;
+		if(!m_ds) return DS_OK;
 		return m_ds->Compact();
 	}
     STDMETHOD(GetSpeakerConfig)     (LPDWORD pdwSpeakerConfig)
 	{
 		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
-		if(!m_ds) return -1;
+		if(!m_ds) return DSERR_UNSUPPORTED;
 		return m_ds->GetSpeakerConfig(pdwSpeakerConfig);
 	}
     STDMETHOD(SetSpeakerConfig)     (DWORD dwSpeakerConfig)
 	{
 		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
-		if(!m_ds) return -1;
+		if(!m_ds) return DSERR_UNSUPPORTED;
 		return m_ds->SetSpeakerConfig(dwSpeakerConfig);
 	}
     STDMETHOD(Initialize)           (LPCGUID pcGuidDevice)
 	{
 		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
-		if(!m_ds) return 0;
+		if(!m_ds) return DS_OK;
 		if((tasflags.emuMode & EMUMODE_EMULATESOUND) && (s_primaryBuffer))
 		{
 			// Lyle fix, since that game initializes directsound multiple times
@@ -1653,7 +1695,7 @@ public:
     STDMETHOD(VerifyCertification)  (LPDWORD pdwCertified)
 	{
 		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
-		if(!m_ds) return -1;
+		if(!m_ds) return DSERR_UNSUPPORTED;
 		return m_ds->VerifyCertification(pdwCertified);
 	}
 
@@ -1787,7 +1829,7 @@ struct MyDirectMusicPerformance
     static HRESULT(STDMETHODCALLTYPE *InitAudio)(IDirectMusicPerformanceN* pThis, IDirectMusic** ppDirectMusic, IDirectSound** ppDirectSound, HWND hWnd, DWORD dwDefaultPathType, DWORD dwPChannelCount, DWORD dwFlags, DMUS_AUDIOPARAMS *pParams);
     static HRESULT STDMETHODCALLTYPE MyInitAudio(IDirectMusicPerformanceN* pThis, IDirectMusic** ppDirectMusic, IDirectSound** ppDirectSound, HWND hWnd, DWORD dwDefaultPathType, DWORD dwPChannelCount, DWORD dwFlags, DMUS_AUDIOPARAMS *pParams)
 	{
-		/*dmusic*/debugprintf(__FUNCTION__ " called.\n");
+		/*dmusic*/debugprintf(__FUNCTION__ "(ppDirectMusic=0x%X, ppDirectSound=0x%X, *pDirectSound=0x%X, dwFlags=0x%X, pParams=0x%X) called.\n", ppDirectMusic, ppDirectSound, ppDirectSound?*ppDirectSound:0, dwFlags, pParams);
 		const char* oldName = tls.curThreadCreateName;
 		tls.curThreadCreateName = "DirectMusic";
 		HRESULT rv = InitAudio(pThis, ppDirectMusic, ppDirectSound, hWnd, dwDefaultPathType, dwPChannelCount, dwFlags, pParams);
@@ -1934,6 +1976,537 @@ struct MyBaseFilter
 
 
 
+//BOOL DebugVTable(void* iface, int entry)
+//{
+//	size_t* pVTable = (size_t*)*(size_t*)iface;
+//	FARPROC oldPtr = (FARPROC)pVTable[entry];
+//	debugprintf("DebugVTable: pVTable[%d] = 0x%X\n", entry, oldPtr);
+//	cmdprintf("DEBUGTRACEADDRESS: %08X", oldPtr);
+//	return TRUE;
+//}
+
+//struct MyDirectSoundSink
+//{
+//	static BOOL Hook(IUnknown* obj)
+//	{
+//		debugprintf(__FUNCTION__ "(0x%X) called.\n", obj);
+//		cmdprintf("SHORTTRACE: 3,50");
+//		BOOL rv = FALSE;
+//		//for(int i = 0; i < 1000; i++)
+//		//	DebugVTable(obj,i);
+//		return rv;
+//	}
+//};
+
+
+//DEFINE_LOCAL_GUID(IID_IDirectSoundSink,???);
+DEFINE_LOCAL_GUID(IID_IDirectSoundSinkFactory,0x2A8AF120,0xE9DE,0x4132,0xAA,0xA5,0x4B,0xDD,0xA5,0xF3,0x25,0xB8);
+DEFINE_LOCAL_GUID(IID_IDirectSoundSinkSync,0x73A6A85A,0x493E,0x4C87,0xB4,0xA5,0xBE,0x53,0xEB,0x92,0x74,0x4B);
+DEFINE_LOCAL_GUID(IID_IKsControl,0x28F54685,0x06FD,0x11D2,0xB2,0x7A,0x00,0xA0,0xC9,0x22,0x31,0x96);
+
+#undef INTERFACE
+#define INTERFACE IDirectSoundSinkFactory
+DECLARE_INTERFACE_(IDirectSoundSinkFactory, IUnknown)
+{
+    // IUnknown methods
+    STDMETHOD(QueryInterface) (THIS_ REFIID, LPVOID *) PURE;
+    STDMETHOD_(ULONG,AddRef) (THIS) PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+    // IDirectSoundSinkFactory? methods
+    STDMETHOD(CreateSoundSink) (THIS_ LPWAVEFORMATEX lpWaveFormat, struct IDirectSoundSink** ppDSC) PURE;
+};
+
+#undef INTERFACE
+#define INTERFACE IDirectSoundSink
+DECLARE_INTERFACE_(IDirectSoundSink, IUnknown)
+{
+    // IUnknown methods
+    STDMETHOD(QueryInterface) (THIS_ REFIID, LPVOID *) PURE;
+    STDMETHOD_(ULONG,AddRef) (THIS) PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+    // IDirectSoundSink? methods
+	STDMETHOD(AddSource) (THIS_ struct IDirectSoundSource*) PURE;
+	STDMETHOD(RemoveSource) (THIS_ struct IDirectSoundSource*) PURE;
+	STDMETHOD(SetMasterClock) (THIS_ IReferenceClock*) PURE;
+	STDMETHOD(CreateSoundBuffer) (THIS_ const LPDSBUFFERDESC pcDSBufferDesc, LPDWORD, DWORD, REFGUID rguid, IDirectSoundBuffer** ppDSBuffer) PURE;
+	STDMETHOD(CreateSoundBufferFromConfig) (THIS_ IUnknown*, IDirectSoundBuffer**) PURE;
+	STDMETHOD(GetSoundBuffer) (THIS_ DWORD, IDirectSoundBuffer**) PURE;
+	STDMETHOD(GetBusCount) (THIS_ LPDWORD) PURE;
+	STDMETHOD(GetBusIDs) (THIS_ LPDWORD, LPDWORD, DWORD) PURE;
+	STDMETHOD(GetFunctionalID) (THIS_ DWORD, LPDWORD) PURE;
+	STDMETHOD(GetSoundBufferBusIDs) (THIS_ IDirectSoundBuffer*, LPDWORD, LPDWORD, LPDWORD) PURE;
+};
+
+#undef INTERFACE
+#define INTERFACE IDirectSoundSinkSync
+DECLARE_INTERFACE_(IDirectSoundSinkSync, IUnknown)
+{
+    // IUnknown methods
+    STDMETHOD(QueryInterface) (THIS_ REFIID, LPVOID *) PURE;
+    STDMETHOD_(ULONG,AddRef) (THIS) PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+    // IDirectSoundSinkSync? methods
+	STDMETHOD(GetLatencyClock)(IReferenceClock** ppReferenceClock) PURE;
+	STDMETHOD(Activate)(BOOL fEnable) PURE;
+	STDMETHOD(SampleToRefTime)(LONGLONG llSampleTime, REFERENCE_TIME *prfTime) PURE;
+	STDMETHOD(RefTimeToSample)(REFERENCE_TIME rfTime, LONGLONG *pllSampleTime) PURE;
+	STDMETHOD(GetFormat)(LPWAVEFORMATEX lpwfxFormat, DWORD dwSizeAllocated, LPDWORD lpdwSizeWritten) PURE;
+};
+
+#undef INTERFACE
+#define INTERFACE IDirectSoundSource
+DECLARE_INTERFACE_(IDirectSoundSource, IUnknown)
+{
+    // IUnknown methods
+    STDMETHOD(QueryInterface) (THIS_ REFIID, LPVOID *) PURE;
+    STDMETHOD_(ULONG,AddRef) (THIS) PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+    // IDirectSoundSource? methods
+    STDMETHOD(SetSink)(IDirectSoundSink* pSink) PURE;
+    STDMETHOD(GetFormat)(LPWAVEFORMATEX lpwfxFormat, DWORD dwSizeAllocated, LPDWORD lpdwSizeWritten) PURE;
+    STDMETHOD(Seek)(ULONGLONG) PURE;
+    STDMETHOD(Read)(LPVOID*,LPDWORD,LPDWORD,LPLONG,LPDWORD,DWORD,ULONGLONG*) PURE;
+    STDMETHOD(ClearLoop)(DWORD) PURE;
+    STDMETHOD(SetLoop)(DWORD,DWORD) PURE;
+};
+
+struct KSID { GUID Set; ULONG Id; ULONG Flags; };
+
+#undef INTERFACE
+#define INTERFACE IKsControl
+DECLARE_INTERFACE_(IKsControl, IUnknown)
+{
+    // IUnknown methods
+    STDMETHOD(QueryInterface) (THIS_ REFIID, LPVOID *) PURE;
+    STDMETHOD_(ULONG,AddRef) (THIS) PURE;
+    STDMETHOD_(ULONG,Release) (THIS) PURE;
+    // IKsControl methods
+    STDMETHOD(KsProperty) (THIS_ KSID* Property, ULONG PropertyLength, LPVOID PropertyData, ULONG DataLength, ULONG* BytesReturned) PURE;
+    STDMETHOD(KsMethod) (THIS_ KSID* Method, ULONG MethodLength, LPVOID MethodData, ULONG DataLength, ULONG* BytesReturned) PURE;
+    STDMETHOD(KsEvent) (THIS_ KSID* Event, ULONG EventLength, LPVOID EventData, ULONG DataLength, ULONG* BytesReturned) PURE;
+};
+
+// this undocumented abomination is needed for certain games (e.g. "I wanna be the GB")
+// to bridge emulated directsound and real directmusic (when using VIRTUALDIRECTSOUND).
+// it's not fully implemented and I'm not sure what everything in here is supposed to do.
+// TODO: fully emulate directmusic instead? (maybe refer to wine there, dmime)
+struct EmulatedDirectSoundSink : public IDirectSoundSink, public IDirectSoundSinkSync, public IKsControl
+{
+public:
+	EmulatedDirectSoundSink(LPWAVEFORMATEX lpWaveFormat)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		
+		refcount = 0;
+		active = FALSE;
+		pRefClock = NULL;
+		nextBusID = 1;
+		busCount = 0;
+
+		int wfxsize = sizeof(WAVEFORMATEX);
+		if(lpWaveFormat->wFormatTag != WAVE_FORMAT_PCM)
+			wfxsize += lpWaveFormat->cbSize;
+		waveFormatAllocated = wfxsize;
+		sinkWaveFormat = (WAVEFORMATEX*)malloc(wfxsize);
+		memcpy(sinkWaveFormat, lpWaveFormat, wfxsize);
+	}
+	~EmulatedDirectSoundSink()
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+	}
+
+	// IUnknown methods
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", riid.Data1);
+		if(!ppvObj)
+			return E_POINTER;
+		/*if(riid == IID_IDirectSoundSink)
+			*ppvObj = (IDirectSoundSink*)this;
+		else*/ if(riid == IID_IDirectSoundSinkSync)
+			*ppvObj = (IDirectSoundSinkSync*)this;
+		else if(riid == IID_IKsControl)
+			*ppvObj = (IKsControl*)this;
+		else if(riid == IID_IUnknown)
+			*ppvObj = (IUnknown*)(IDirectSoundSink*)this;
+		else
+		{
+			debugprintf(__FUNCTION__ " for unknown riid: %08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X\n", riid.Data1, riid.Data2, riid.Data3, riid.Data4[0], riid.Data4[1], riid.Data4[2], riid.Data4[3], riid.Data4[4], riid.Data4[5], riid.Data4[6], riid.Data4[7]);
+			*ppvObj = NULL;
+			return E_NOINTERFACE;
+		}
+		AddRef();
+		return S_OK;
+	}
+
+    ULONG STDMETHODCALLTYPE AddRef()
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		return ++refcount;
+	}
+
+    ULONG STDMETHODCALLTYPE Release()
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		ULONG count = --refcount;
+		if(0 == count)
+			delete this;
+		return count;
+	}
+
+	std::vector<IDirectSoundSource*> sources;
+
+	// IDirectSoundSink? methods
+	STDMETHOD(AddSource) (IDirectSoundSource* pDSS)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X, 0x%X) called.\n", this, pDSS);
+		pDSS->SetSink(this);
+		sources.push_back(pDSS);
+		return DS_OK;
+	}
+	STDMETHOD(RemoveSource) (IDirectSoundSource* pDSS)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X, 0x%X) called.\n", this, pDSS);
+		sources.erase(std::remove(sources.begin(), sources.end(), pDSS), sources.end());
+		return DS_OK;
+	}
+	STDMETHOD(SetMasterClock) (IReferenceClock* pReferenceClock)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X, 0x%X) called.\n", this, pReferenceClock);
+		if(pReferenceClock)
+			HookCOMInterface(IID_IReferenceClock, (LPVOID*)&pReferenceClock);
+		pRefClock = pReferenceClock;
+		return DS_OK;
+	}
+	STDMETHOD(CreateSoundBuffer) (const LPDSBUFFERDESC pcDSBufferDesc, LPDWORD lpdwNotSure, DWORD dwNumSlotsOrSomething, REFGUID rguid, IDirectSoundBuffer** ppDSBuffer)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ " called.\n");
+
+		if(!pcDSBufferDesc || !ppDSBuffer)
+			return DSERR_INVALIDPARAM;
+
+		debuglog(LCF_DSOUND, "flags=0x%X, bytes=0x%X\n", pcDSBufferDesc->dwFlags, pcDSBufferDesc->dwBufferBytes);
+
+		if(!(pcDSBufferDesc->dwFlags & DSBCAPS_PRIMARYBUFFER))
+		{
+			*ppDSBuffer = (LPDIRECTSOUNDBUFFER)(new EmulatedDirectSoundBuffer());
+		}
+		else
+		{
+			if(pcDSBufferDesc->dwFlags & DSBCAPS_PRIMARYBUFFER)
+				debuglog(LCF_DSOUND, "creating s_primaryBuffer flags=0x%X\n", pcDSBufferDesc->dwFlags);
+			// pretend to have a primary buffer
+			*ppDSBuffer = (LPDIRECTSOUNDBUFFER)(new EmulatedDirectSoundBuffer(true));
+		}
+		(*ppDSBuffer)->Initialize(/*pEmulatedDirectSound*/NULL, pcDSBufferDesc);
+
+		busToBuf[nextBusID] = *ppDSBuffer;
+		bufToBus[*ppDSBuffer] = nextBusID;
+		busToSlots[nextBusID] = dwNumSlotsOrSomething;
+		nextBusID += (dwNumSlotsOrSomething>0) ? dwNumSlotsOrSomething : 1;
+		busCount++;
+
+		// TODO: use lpdwNotSure and rguid for somethingorother?
+
+		return DS_OK;
+	}
+	STDMETHOD(CreateSoundBufferFromConfig) (IUnknown*, IDirectSoundBuffer** ppDSBuffer)
+	{
+		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		// NYI. but search for "DirectSound Buffer Configuration Form" if it's needed.
+		return DSERR_UNSUPPORTED;
+	}
+	STDMETHOD(GetSoundBuffer) (DWORD dwBus, IDirectSoundBuffer** ppDSBuffer)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		if(!ppDSBuffer)
+			return E_POINTER;
+		*ppDSBuffer = busToBuf[dwBus];
+		return DS_OK;
+	}
+	STDMETHOD(GetBusCount) (LPDWORD pBusOut)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		if(!pBusOut)
+			return E_POINTER;
+		*pBusOut = busCount;
+		return DS_OK;
+	}
+	STDMETHOD(GetBusIDs) (LPDWORD a, LPDWORD b, DWORD c)
+	{
+		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		// NYI
+		if(a)
+			*a = 1;
+		if(b)
+			*b = 1;
+		return DS_OK;
+	}
+	STDMETHOD(GetFunctionalID) (DWORD a, LPDWORD b)
+	{
+		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		if(!b)
+			return E_POINTER;
+		// NYI
+		*b = 1;
+		return DS_OK;
+	}
+	STDMETHOD(GetSoundBufferBusIDs) (IDirectSoundBuffer* lpDSB, LPDWORD a, LPDWORD b, LPDWORD c)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X, lpDSB=0x%X, a=0x%X, *a=0x%X, b=0x%X, *b=0x%X, c=0x%X, *c=0x%X) called.\n", this, lpDSB, a,a?*a:0, b,b?*b:0, c,c?*c:0);
+		DWORD busID = bufToBus[lpDSB];
+		if(a)
+			*a = busID;
+		if(b)
+			*b = 0; // NYI (I've never seen b be nonzero)
+		if(c)
+			*c = busToSlots[nextBusID];
+		return DS_OK;
+	}
+
+	// IDirectSoundSinkSync? methods
+	STDMETHOD(GetLatencyClock)(IReferenceClock** ppReferenceClock)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		if(!ppReferenceClock)
+		{
+			debuglog(LCF_DSOUND|LCF_ERROR, __FUNCTION__ "returned LCF_DSOUND.\n");
+			return E_POINTER;
+		}
+		debuglog(LCF_DSOUND, __FUNCTION__ " returned pRefClock=0x%X.\n", pRefClock);
+		*ppReferenceClock = pRefClock;
+		return DS_OK;
+	}
+	STDMETHOD(Activate)(BOOL fEnable)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X, fEnable=%d) called.\n", this, fEnable);
+		active = fEnable;
+		// NYI
+		return DS_OK;
+	}
+	STDMETHOD(SampleToRefTime)(LONGLONG llSampleTime, REFERENCE_TIME *prfTime)
+	{
+		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		// NYI
+		if(!prfTime)
+			return E_POINTER;
+		*prfTime = llSampleTime;
+		return DS_OK;
+	}
+	STDMETHOD(RefTimeToSample)(REFERENCE_TIME rfTime, LONGLONG *pllSampleTime)
+	{
+		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		// NYI
+		if(!pllSampleTime)
+			return E_POINTER;
+		*pllSampleTime = rfTime;
+		return DS_OK;
+	}
+	STDMETHOD(GetFormat)(LPWAVEFORMATEX lpwfxFormat, DWORD dwSizeAllocated, LPDWORD lpdwSizeWritten)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		DWORD size = waveFormatAllocated;
+		if(lpwfxFormat)
+		{
+			if(size > dwSizeAllocated)
+				size = dwSizeAllocated;
+			memcpy(lpwfxFormat, sinkWaveFormat, size);
+		}
+		if(lpdwSizeWritten)
+			*lpdwSizeWritten = size;
+		return DS_OK;
+	}
+
+	// IKsControl methods
+
+    STDMETHOD(KsProperty) (KSID* Property, ULONG PropertyLength, LPVOID PropertyData, ULONG DataLength, ULONG* BytesReturned)
+	{
+		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		// NYI (I've seen IKsControl queried but never seen this function called.)
+		return -1;
+	}
+    STDMETHOD(KsMethod) (KSID* Method, ULONG MethodLength, LPVOID MethodData, ULONG DataLength, ULONG* BytesReturned)
+	{
+		return KsEvent(Method, MethodLength, MethodData, DataLength, BytesReturned);
+	}
+    STDMETHOD(KsEvent) (KSID* Event, ULONG EventLength, LPVOID EventData, ULONG DataLength, ULONG* BytesReturned)
+	{
+		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		// NYI (I've seen IKsControl queried but never seen this function called.)
+		return -1;
+	}
+
+	LPWAVEFORMATEX sinkWaveFormat;
+	DWORD waveFormatAllocated;
+	BOOL active;
+
+	DWORD nextBusID;
+	std::map<DWORD,IDirectSoundBuffer*> busToBuf;
+	std::map<IDirectSoundBuffer*,DWORD> bufToBus;
+	std::map<DWORD,DWORD> busToSlots;
+	DWORD busCount;
+
+	IReferenceClock* pRefClock;
+
+	DWORD refcount;
+};
+
+
+
+
+
+struct EmulatedDirectSoundSinkFactory* s_pEmulatedDirectSoundSinkFactory = NULL; // for now, we only need 1 of these
+
+struct EmulatedDirectSoundSinkFactory : public IDirectSoundSinkFactory
+{
+public:
+	EmulatedDirectSoundSinkFactory()
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		s_pEmulatedDirectSoundSinkFactory = this;
+		refcount = 0;
+	}
+	~EmulatedDirectSoundSinkFactory()
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		if(s_pEmulatedDirectSoundSinkFactory == this)
+			s_pEmulatedDirectSoundSinkFactory = NULL;
+	}
+
+	// IUnknown methods
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObj)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", riid.Data1);
+		if(!ppvObj)
+			return E_POINTER;
+		if(riid == IID_IDirectSoundSinkFactory)
+			*ppvObj = (IDirectSoundSinkFactory*)this;
+		else if(riid == IID_IUnknown)
+			*ppvObj = (IUnknown*)this;
+		else
+		{
+			*ppvObj = NULL;
+			return E_NOINTERFACE;
+		}
+		AddRef();
+		return S_OK;
+	}
+
+    ULONG STDMETHODCALLTYPE AddRef()
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		return ++refcount;
+	}
+
+    ULONG STDMETHODCALLTYPE Release()
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		ULONG count = --refcount;
+		if(0 == count)
+			delete this;
+		return count;
+	}
+
+	// IDirectSoundSinkFactory? methods
+	HRESULT STDMETHODCALLTYPE CreateSoundSink(LPWAVEFORMATEX lpWaveFormat, IDirectSoundSink** ppDSC)
+	{
+		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
+		if(!ppDSC)
+			return E_POINTER;
+		*ppDSC = (IDirectSoundSink*)(new EmulatedDirectSoundSink(lpWaveFormat));
+		(*ppDSC)->AddRef();
+		return S_OK;
+	}
+
+	DWORD refcount;
+};
+
+
+// disabled because it's only used for debugging
+//struct MyDirectSoundSink
+//{
+//	static BOOL Hook(IDirectSoundSink* obj)
+//	{
+//		debugprintf(__FUNCTION__ "(0x%X) called.\n", obj);
+//		BOOL rv = FALSE;
+//		rv |= HookVTable(obj, 0, (FARPROC)MyQueryInterface, (FARPROC&)QueryInterface, __FUNCTION__": QueryInterface");
+//		rv |= VTHOOKFUNC(IDirectSoundSink, GetSoundBufferBusIDs);
+//		rv |= VTHOOKFUNC(IDirectSoundSink, CreateSoundBuffer);
+//		return rv;
+//	}
+//	
+//	static HRESULT(STDMETHODCALLTYPE *QueryInterface)(IDirectSoundSink* pThis, REFIID riid, void** ppvObj);
+//	static HRESULT STDMETHODCALLTYPE MyQueryInterface(IDirectSoundSink* pThis, REFIID riid, void** ppvObj)
+//	{
+//		debugprintf(__FUNCTION__ "(0x%X) called.\n", riid.Data1);
+//		HRESULT rv = QueryInterface(pThis, riid, ppvObj);
+//		if(SUCCEEDED(rv))
+//			HookCOMInterface(riid, ppvObj);
+//		return rv;
+//	}
+//
+//	static HRESULT(STDMETHODCALLTYPE *GetSoundBufferBusIDs)(IDirectSoundSink* pThis, IDirectSoundBuffer* lpDSB, LPDWORD a, LPDWORD b, LPDWORD c);
+//	static HRESULT STDMETHODCALLTYPE MyGetSoundBufferBusIDs(IDirectSoundSink* pThis, IDirectSoundBuffer* lpDSB, LPDWORD a, LPDWORD b, LPDWORD c)
+//	{
+//		debugprintf(__FUNCTION__ "(0x%X, lpDSB=0x%X, a=0x%X, *a=0x%X, b=0x%X, *b=0x%X, c=0x%X, *c=0x%X) called.\n", pThis, lpDSB, a,a?*a:0,b,b?*b:0, c,c?*c:0);
+//		HRESULT rv = GetSoundBufferBusIDs(pThis, lpDSB, a, b, c);
+//		debugprintf(__FUNCTION__ "(0x%X, lpDSB=0x%X, a=0x%X, *a=0x%X, b=0x%X, *b=0x%X, c=0x%X, *c=0x%X) called.\n", pThis, lpDSB, a,a?*a:0,b,b?*b:0, c,c?*c:0);
+//		return rv;
+//	}
+//
+//	static HRESULT(STDMETHODCALLTYPE *CreateSoundBuffer)(IDirectSoundSink* pThis, const LPDSBUFFERDESC pcDSBufferDesc, LPDWORD lpdwNotSure, DWORD dwNumSlotsOrSomething, REFGUID rguid, IDirectSoundBuffer** ppDSBuffer);
+//	static HRESULT STDMETHODCALLTYPE MyCreateSoundBuffer(IDirectSoundSink* pThis, const LPDSBUFFERDESC pcDSBufferDesc, LPDWORD lpdwNotSure, DWORD dwNumSlotsOrSomething, REFGUID rguid, IDirectSoundBuffer** ppDSBuffer)
+//	{
+//		debugprintf(__FUNCTION__ "(0x%X, pcDSBufferDesc=0x%X, lpdwNotSure=0x%X, *lpdwNotSure=0x%X, dwNumSlotsOrSomething=0x%X) called.\n", pThis, pcDSBufferDesc, lpdwNotSure,lpdwNotSure?*lpdwNotSure:0,dwNumSlotsOrSomething);
+//		HRESULT rv = CreateSoundBuffer(pThis, pcDSBufferDesc, lpdwNotSure, dwNumSlotsOrSomething, rguid, ppDSBuffer);
+//		debugprintf(__FUNCTION__ "(0x%X, pcDSBufferDesc=0x%X, lpdwNotSure=0x%X, *lpdwNotSure=0x%X, dwNumSlotsOrSomething=0x%X) called.\n", pThis, pcDSBufferDesc, lpdwNotSure,lpdwNotSure?*lpdwNotSure:0,dwNumSlotsOrSomething);
+//		return rv;
+//	}
+//
+//};
+//HRESULT (STDMETHODCALLTYPE* MyDirectSoundSink::QueryInterface)(IDirectSoundSink* pThis, REFIID riid, void** ppvObj) = 0;
+//HRESULT (STDMETHODCALLTYPE* MyDirectSoundSink::GetSoundBufferBusIDs)(IDirectSoundSink* pThis, IDirectSoundBuffer* lpDSB, LPDWORD a, LPDWORD b, LPDWORD c) = 0;
+//HRESULT (STDMETHODCALLTYPE* MyDirectSoundSink::CreateSoundBuffer)(IDirectSoundSink* pThis, const LPDSBUFFERDESC pcDSBufferDesc, LPDWORD lpdwNotSure, DWORD dwNumSlotsOrSomething, REFGUID rguid, IDirectSoundBuffer** ppDSBuffer) = 0;
+//
+//struct MyDirectSoundSinkFactory
+//{
+//	static BOOL Hook(IDirectSoundSinkFactory* obj)
+//	{
+//		debugprintf(__FUNCTION__ "(0x%X) called.\n", obj);
+//		BOOL rv = FALSE;
+//		rv |= VTHOOKFUNC(IDirectSoundSinkFactory, CreateSoundSink);
+//		rv |= HookVTable(obj, 0, (FARPROC)MyQueryInterface, (FARPROC&)QueryInterface, __FUNCTION__": QueryInterface");
+//		return rv;
+//	}
+//
+//	static HRESULT(STDMETHODCALLTYPE *QueryInterface)(IDirectSoundSinkFactory* pThis, REFIID riid, void** ppvObj);
+//	static HRESULT STDMETHODCALLTYPE MyQueryInterface(IDirectSoundSinkFactory* pThis, REFIID riid, void** ppvObj)
+//	{
+//		debugprintf(__FUNCTION__ "(0x%X) called.\n", riid.Data1);
+//		HRESULT rv = QueryInterface(pThis, riid, ppvObj);
+//		if(SUCCEEDED(rv))
+//			HookCOMInterface(riid, ppvObj);
+//		return rv;
+//	}
+//
+//	static HRESULT(STDMETHODCALLTYPE *CreateSoundSink)(IDirectSoundSinkFactory* pThis, LPWAVEFORMATEX lpWaveFormat, IDirectSoundSink** ppDSC);
+//	static HRESULT STDMETHODCALLTYPE MyCreateSoundSink(IDirectSoundSinkFactory* pThis, LPWAVEFORMATEX lpWaveFormat, IDirectSoundSink** ppDSC)
+//	{
+//		debuglog(LCF_DSOUND|LCF_TODO|LCF_UNTESTED,__FUNCTION__ "(0x%X) called.\n", pThis);
+//		cmdprintf("SHORTTRACE: 3,50");
+//		HRESULT rv = CreateSoundSink(pThis, lpWaveFormat, ppDSC);
+//		if(SUCCEEDED(rv))
+//			MyDirectSoundSink::Hook(*ppDSC);
+//		return rv;
+//	}
+//};
+//HRESULT (STDMETHODCALLTYPE* MyDirectSoundSinkFactory::QueryInterface)(IDirectSoundSinkFactory* pThis, REFIID riid, void** ppvObj) = 0;
+//HRESULT (STDMETHODCALLTYPE* MyDirectSoundSinkFactory::CreateSoundSink)(IDirectSoundSinkFactory* pThis, LPWAVEFORMATEX lpWaveFormat, IDirectSoundSink** ppDSC) = 0;
+
+
+
+
+
 HOOKFUNC MMRESULT WINAPI MywaveOutWrite(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh)
 {
 	// TODO: audio capture for AVI when DirectSound isn't used...
@@ -1945,6 +2518,13 @@ HOOKFUNC MMRESULT WINAPI MywaveOutWrite(HWAVEOUT hwo, LPWAVEHDR pwh, UINT cbwh)
 HOOKFUNC BOOL WINAPI MyBeep(DWORD dwFreq, DWORD dwDuration)
 {
 	//BOOL rv = Beep(dwFreq, dwDuration;
+	debuglog(LCF_WSOUND, __FUNCTION__ " called (and suppressed).\n");
+	BOOL rv = TRUE; // no beeping allowed
+	return rv;
+}
+HOOKFUNC BOOL WINAPI MyMessageBeep(UINT uType)
+{
+	//BOOL rv = MessageBeep(uType;
 	debuglog(LCF_WSOUND, __FUNCTION__ " called (and suppressed).\n");
 	BOOL rv = TRUE; // no beeping allowed
 	return rv;
@@ -2369,6 +2949,8 @@ bool HookCOMInterfaceSound(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew)
 		//VTHOOKRIID3(IAMGraphStreams,MyAMGraphStreams);
 		//VTHOOKRIID3(IAMOpenProgress,MyAMOpenProgress);
 
+//		VTHOOKRIID3(IDirectSoundSinkFactory,MyDirectSoundSinkFactory); // disabled because it's only used for debugging
+
 		default: return false;
 	}
 	return true;
@@ -2385,6 +2967,7 @@ void ApplySoundIntercepts()
 		MAKE_INTERCEPT(1, WINMM, waveOutReset),
 		MAKE_INTERCEPT(1, WINMM, waveOutOpen),
 		MAKE_INTERCEPT(1, KERNEL32, Beep),
+		MAKE_INTERCEPT(1, USER32, MessageBeep),
 		MAKE_INTERCEPT(1, WINMM, PlaySoundA),
 		MAKE_INTERCEPT(1, WINMM, PlaySoundW),
 		MAKE_INTERCEPT(1, WINMM, mciSendCommandA),

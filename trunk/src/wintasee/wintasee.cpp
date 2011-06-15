@@ -101,9 +101,15 @@ void ApplyOGLIntercepts();
 bool HookCOMInterfaceD3D7(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew);
 void ApplyD3DIntercepts();
 
+void BackupVideoMemoryOfAllD3D8Surfaces();
+void RestoreVideoMemoryOfAllD3D8Surfaces();
+bool RedrawScreenD3D8();
 bool HookCOMInterfaceD3D8(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew);
 void ApplyD3D8Intercepts();
 
+void BackupVideoMemoryOfAllD3D9Surfaces();
+void RestoreVideoMemoryOfAllD3D9Surfaces();
+bool RedrawScreenD3D9();
 bool HookCOMInterfaceD3D9(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew);
 void ApplyD3D9Intercepts();
 
@@ -215,7 +221,11 @@ bool RedrawScreen()
 {
 	verbosedebugprintf(__FUNCTION__ " called.\n");
 	redrawingScreen = true;
-	if(RedrawScreenDDraw())
+	if(RedrawScreenD3D8())
+	{}
+	else if(RedrawScreenD3D9())
+	{}
+	else if(RedrawScreenDDraw()) // moved to after d3d8 to fix redraw in tumiki fighters
 	{}
 	else if(RedrawScreenGDI())
 	{}
@@ -701,9 +711,11 @@ void SaveOrLoad(int slot, bool save)
 {
 	verbosedebugprintf(__FUNCTION__ " called.\n");
 	tls.callerisuntrusted++;
-	if(save)
+	if(save && tasflags.storeVideoMemoryInSavestates)
 	{
 		BackupVideoMemoryOfAllDDrawSurfaces();
+		BackupVideoMemoryOfAllD3D8Surfaces();
+		BackupVideoMemoryOfAllD3D9Surfaces();
 	}
 	StopAllSounds();
 	if(save)
@@ -716,9 +728,11 @@ void SaveOrLoad(int slot, bool save)
 		cmdprintf("LOAD: %d", slot);
 		// note: any code placed here will never run! execution continues in the above branch.
 	}
-	if(!save)
+	if(tasflags.stateLoaded > 0 && tasflags.storeVideoMemoryInSavestates)
 	{
 		RestoreVideoMemoryOfAllDDrawSurfaces();
+		RestoreVideoMemoryOfAllD3D8Surfaces();
+		RestoreVideoMemoryOfAllD3D9Surfaces();
 		RedrawScreen();
 	}
 	ResumePlayingSounds();
@@ -844,14 +858,32 @@ void HandlePausedEvents()
 	};
 
 	MSG msg;
-	for(int i = 0; i < ARRAYSIZE(msgFilterArgs); i++)
+
+	// using gamehwnd isn't reliable enough
+	std::map<HWND, WNDPROC>::iterator iter;
+	bool sentToAny = false;
+	for(iter = hwndToOrigHandler.begin(); iter != hwndToOrigHandler.end();)
 	{
-		if(PeekMessageA(&msg, gamehwnd, msgFilterArgs[i].wMsgFilterMin,msgFilterArgs[i].wMsgFilterMax, PM_REMOVE|PM_NOYIELD | msgFilterArgs[i].wRemoveMsg))
+		HWND hwnd = iter->first;
+		iter++;
+		DWORD style = (DWORD)GetWindowLong(hwnd, GWL_STYLE);
+		if(IsWindow(hwnd)
+		&& ((hwnd==gamehwnd && (style&WS_VISIBLE))
+		 || ((style & (WS_VISIBLE|WS_CAPTION)) == (WS_VISIBLE|WS_CAPTION))
+		 || ((style & (WS_VISIBLE|WS_POPUP)) == (WS_VISIBLE|WS_POPUP)))
+		 )
 		{
-			//DispatchMessageInternal(gamehwnd, msg.message, msg.wParam, msg.lParam, true, MAF_PASSTHROUGH|MAF_RETURN_OS);
-			MyWndProcA(gamehwnd, msg.message, msg.wParam, msg.lParam);
+			for(int i = 0; i < ARRAYSIZE(msgFilterArgs); i++)
+			{
+				if(PeekMessageA(&msg, hwnd, msgFilterArgs[i].wMsgFilterMin,msgFilterArgs[i].wMsgFilterMax, PM_REMOVE|PM_NOYIELD | msgFilterArgs[i].wRemoveMsg))
+				{
+					//DispatchMessageInternal(hwnd, msg.message, msg.wParam, msg.lParam, true, MAF_PASSTHROUGH|MAF_RETURN_OS);
+					MyWndProcA(hwnd, msg.message, msg.wParam, msg.lParam);
+				}
+			}
 		}
 	}
+
 	tls.callerisuntrusted -= 2;
 	inPauseHandler = false;
 }

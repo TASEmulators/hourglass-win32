@@ -494,6 +494,22 @@ HOOKFUNC BOOL WINAPI MyGetWindowRect(HWND hWnd, LPRECT lpRect)
 	return GetWindowRect(hWnd, lpRect);
 }
 
+HOOKFUNC BOOL WINAPI MySetWindowTextA(HWND hWnd, LPCSTR lpString)
+{
+	debuglog(LCF_WINDOW, __FUNCTION__ "(0x%X, \"%s\") called.\n", hWnd, lpString);
+	BOOL rv = SetWindowTextA(hWnd, lpString);
+	DispatchMessageInternal(hWnd, WM_SETTEXT, 0, (LPARAM)lpString, true, MAF_BYPASSGAME|MAF_RETURN_OS);
+	return rv;
+}
+HOOKFUNC BOOL WINAPI MySetWindowTextW(HWND hWnd, LPCWSTR lpString)
+{
+	debuglog(LCF_WINDOW, __FUNCTION__ "(0x%X, \"%S\") called.\n", hWnd, lpString);
+	BOOL rv = SetWindowTextW(hWnd, lpString);
+	DispatchMessageInternal(hWnd, WM_SETTEXT, 0, (LPARAM)lpString, false, MAF_BYPASSGAME|MAF_RETURN_OS);
+	return rv;
+}
+
+
 int GetDefaultMessageBoxResult(UINT uType)
 {
 	if((uType & MB_DEFBUTTON2) == MB_DEFBUTTON2)
@@ -604,6 +620,8 @@ void ApplyWindowIntercepts()
 		MAKE_INTERCEPT(1, USER32, ShowWindow),
 		MAKE_INTERCEPT(1, USER32, GetClientRect),
 		MAKE_INTERCEPT(1, USER32, GetWindowRect),
+		MAKE_INTERCEPT(1, USER32, SetWindowTextA),
+		MAKE_INTERCEPT(1, USER32, SetWindowTextW),
 		//MAKE_INTERCEPT(1, USER32, InvalidateRect),
 		//MAKE_INTERCEPT(1, USER32, UpdateWindow),
 		MAKE_INTERCEPT(1, USER32, MessageBoxA),

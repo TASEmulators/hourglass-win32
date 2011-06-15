@@ -12,16 +12,50 @@
 
 void FakeBroadcastDisplayChange(int width, int height, int depth);
 
-DEFINE_LOCAL_GUID(IID_IDirect3DDevice8,0x7385e5df,0x8fe8,0x41d5,0x86,0xb6,0xd7,0xb4,0x85,0x47,0xb6,0xcf);
-DEFINE_LOCAL_GUID(IID_IDirect3DSwapChain8,0x928c088b,0x76b9,0x4c6b,0xa5,0x36,0xa5,0x90,0x85,0x38,0x76,0xcd);
+DEFINE_LOCAL_GUID(IID_IDirect3D8,0x1DD9E8DA,0x1C77,0x4D40,0xB0,0xCF,0x98,0xFE,0xFD,0xFF,0x95,0x12);
+DEFINE_LOCAL_GUID(IID_IDirect3DDevice8,0x7385E5DF,0x8FE8,0x41D5,0x86,0xB6,0xD7,0xB4,0x85,0x47,0xB6,0xCF);
+DEFINE_LOCAL_GUID(IID_IDirect3DSwapChain8,0x928C088B,0x76B9,0x4C6B,0xA5,0x36,0xA5,0x90,0x85,0x38,0x76,0xCD);
+DEFINE_LOCAL_GUID(IID_IDirect3DSurface8,0xB96EEBCA,0xB326,0x4EA5,0x88,0x2F,0x2F,0xF5,0xBA,0xE0,0x21,0xDD);
+DEFINE_LOCAL_GUID(IID_IDirect3DTexture8,0xE4CDD575,0x2866,0x4F01,0xB1,0x2E,0x7E,0xEC,0xE1,0xEC,0x93,0x58);
 
 static IDirect3DDevice8* pBackBufCopyOwner = NULL;
 static IDirect3DSurface8* pBackBufCopy = NULL;
+
+static IDirect3DDevice8* s_saved_d3d8Device = NULL;
+static IDirect3DSwapChain8* s_saved_d3d8SwapChain = NULL;
+static RECT s_savedD3D8SrcRect = {};
+static RECT s_savedD3D8DstRect = {};
+static LPRECT s_savedD3D8pSrcRect = NULL;
+static LPRECT s_savedD3D8pDstRect = NULL;
+static HWND s_savedD3D8HWND = NULL;
+static HWND s_savedD3D8DefaultHWND = NULL;
+static RECT s_savedD3D8ClientRect = {};
 
 std::map<IDirect3DSwapChain8*,IDirect3DDevice8*> d3d8SwapChainToDeviceMap;
 
 static bool d3d8BackBufActive = true;
 static bool d3d8BackBufDirty = true;
+
+// I feel like there must be some smarter way of storing this custom data than with maps,
+// but wrapping the interfaces breaks some internal code in d3d that assumes the interface can be cast to a specific internal type,
+// and without wrapping the interface I'm not sure how else I could add my own data to the class.
+
+struct IDirect3DSurface8_CustomData
+{
+	void* videoMemoryPixelBackup;
+	bool videoMemoryBackupDirty;
+	bool ownedByTexture;
+	bool isBackBuffer;
+};
+static std::map<IDirect3DSurface8*, IDirect3DSurface8_CustomData> surface8data;
+
+struct IDirect3DTexture8_CustomData
+{
+	bool valid;
+	bool dirty;
+};
+static std::map<IDirect3DTexture8*, IDirect3DTexture8_CustomData> texture8data;
+
 
 struct MyDirect3DDevice8
 {
@@ -36,24 +70,41 @@ struct MyDirect3DDevice8
 
 		rv |= VTHOOKFUNC(IDirect3DDevice8, CopyRects);
 		//rv |= VTHOOKFUNC(IDirect3DDevice8, UpdateTexture);
-//		rv |= VTHOOKFUNC(IDirect3DDevice8, BeginScene);
-//		rv |= VTHOOKFUNC(IDirect3DDevice8, EndScene);
 		rv |= VTHOOKFUNC(IDirect3DDevice8, Clear);
 		rv |= VTHOOKFUNC(IDirect3DDevice8, DrawPrimitive);
 		rv |= VTHOOKFUNC(IDirect3DDevice8, DrawIndexedPrimitive);
 		rv |= VTHOOKFUNC(IDirect3DDevice8, DrawPrimitiveUP);
 		rv |= VTHOOKFUNC(IDirect3DDevice8, DrawIndexedPrimitiveUP);
-//		//rv |= VTHOOKFUNC(IDirect3DDevice8, DrawRectPatch);
-//		//rv |= VTHOOKFUNC(IDirect3DDevice8, DrawTriPatch);
+		//rv |= VTHOOKFUNC(IDirect3DDevice8, DrawRectPatch);
+		//rv |= VTHOOKFUNC(IDirect3DDevice8, DrawTriPatch);
+		rv |= VTHOOKFUNC(IDirect3DDevice8, Release);
+		rv |= VTHOOKFUNC(IDirect3DDevice8, CreateTexture);
+		rv |= VTHOOKFUNC(IDirect3DDevice8, CreateRenderTarget);
+		//rv |= VTHOOKFUNC(IDirect3DDevice8, CreateImageSurface);
+	
+	
 
 		rv |= HookVTable(obj, 0, (FARPROC)MyQueryInterface, (FARPROC&)QueryInterface, __FUNCTION__": QueryInterface");
+		return rv;
+	}
+
+	static ULONG(STDMETHODCALLTYPE *Release)(IDirect3DDevice8* pThis);
+	static ULONG STDMETHODCALLTYPE MyRelease(IDirect3DDevice8* pThis)
+	{
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called.\n", pThis);
+		ULONG rv = Release(pThis);
+		if(rv == 0)
+		{
+			if(pBackBufCopyOwner == pThis) { pBackBufCopyOwner = NULL; }
+			if(s_saved_d3d8Device == pThis) { s_saved_d3d8Device = NULL; }
+		}
 		return rv;
 	}
 
 	static HRESULT(STDMETHODCALLTYPE *QueryInterface)(IDirect3DDevice8* pThis, REFIID riid, void** ppvObj);
 	static HRESULT STDMETHODCALLTYPE MyQueryInterface(IDirect3DDevice8* pThis, REFIID riid, void** ppvObj)
 	{
-		/*d3d*/debugprintf(__FUNCTION__ " called.\n");
+		d3ddebugprintf(__FUNCTION__ " called.\n");
 		HRESULT rv = QueryInterface(pThis, riid, ppvObj);
 		if(SUCCEEDED(rv))
 			HookCOMInterface(riid, ppvObj);
@@ -86,7 +137,7 @@ struct MyDirect3DDevice8
 			// if we are, it's still a regular frame boundary,
 			// but we prepare extra info for the AVI capture around it.
 			DDSURFACEDESC desc = { sizeof(DDSURFACEDESC) };
-			IDirect3DSurface8* pBackBuffer;
+			IDirect3DSurface8* pBackBuffer = NULL;
 #if 0 // slow
 			Lock(pThis, desc, pBackBuffer, pSourceRect);
 			FrameBoundary(&desc, CAPTUREINFO_TYPE_DDSD);
@@ -127,6 +178,8 @@ struct MyDirect3DDevice8
 	#endif
 			FrameBoundary(&desc, CAPTUREINFO_TYPE_DDSD);
 			pSurface->UnlockRect();
+			if(pBackBuffer)
+				pBackBuffer->Release();
 #endif
 		}
 	}
@@ -142,9 +195,20 @@ struct MyDirect3DDevice8
 		else
 			rv = Present(pThis, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 
+
 		if((d3d8BackBufActive || d3d8BackBufDirty) && !redrawingScreen)
 		{
+			s_saved_d3d8SwapChain = NULL;
+			s_saved_d3d8Device = pThis;
+			s_savedD3D8pSrcRect = pSourceRect ? &s_savedD3D8SrcRect : NULL;
+			s_savedD3D8pDstRect = pDestRect ? &s_savedD3D8DstRect : NULL;
+			if(pSourceRect) s_savedD3D8SrcRect = *pSourceRect;
+			if(pDestRect) s_savedD3D8DstRect = *pDestRect;
+			s_savedD3D8HWND = hDestWindowOverride ? hDestWindowOverride : s_savedD3D8DefaultHWND;
+			GetClientRect(s_savedD3D8HWND, &s_savedD3D8ClientRect);
+
 			PresentFrameBoundary(pThis, pSourceRect, pDestRect);
+
 			d3d8BackBufDirty = false;
 		}
 
@@ -180,7 +244,8 @@ struct MyDirect3DDevice8
 		HRESULT rv = SetRenderTarget(pThis, pRenderTarget, pNewZStencil);
 		IDirect3DSurface8* pBackBuffer;
 		if(SUCCEEDED(pThis->GetBackBuffer(0,D3DBACKBUFFER_TYPE_MONO,&pBackBuffer)))
-			d3d8BackBufActive = (pRenderTarget == pBackBuffer);
+			if(pBackBuffer->Release() != 0)
+				d3d8BackBufActive = (pRenderTarget == pBackBuffer);
 		return rv;
 	}
 
@@ -239,6 +304,9 @@ struct MyDirect3DDevice8
 			desc.dwWidth = min(desc.dwWidth, (DWORD)(pSourceRect->right - pSourceRect->left));
 			desc.dwHeight = min(desc.dwHeight, (DWORD)(pSourceRect->bottom - pSourceRect->top));
 		}
+
+		if(getBackBuffer)
+			pBackBuffer->Release();
 	}
 
     static HRESULT(STDMETHODCALLTYPE *CopyRects)(IDirect3DDevice8* pThis, IDirect3DSurface8* pSourceSurface,CONST RECT* pSourceRectsArray,UINT cRects,IDirect3DSurface8* pDestinationSurface,CONST POINT* pDestPointsArray);
@@ -249,30 +317,18 @@ struct MyDirect3DDevice8
 		IDirect3DSurface8* pBuffer;
 		if(!redrawingScreen)
 		{
-			if(!d3d8BackBufDirty && SUCCEEDED(pThis->GetBackBuffer(0,D3DBACKBUFFER_TYPE_MONO,&pBuffer)) && pDestinationSurface == pBuffer)
-				d3d8BackBufDirty = true;
+			if(!d3d8BackBufDirty && SUCCEEDED(pThis->GetBackBuffer(0,D3DBACKBUFFER_TYPE_MONO,&pBuffer)))
+			{
+				if(pDestinationSurface == pBuffer)
+					d3d8BackBufDirty = true;
+				pBuffer->Release();
+			}
 			// NYI. maybe need to call PresentFrameBoundary in some cases (if pDestinationSurface can be the front buffer)
 			//else if(SUCCEEDED(pThis->GetFrontBuffer(&pBuffer)) && pDestinationSurface == pBuffer)
 			//	PresentFrameBoundary(pThis);
 		}
 		return rv;
 	}
-
- //   static HRESULT(STDMETHODCALLTYPE *BeginScene)(IDirect3DDevice8* pThis);
- //   static HRESULT STDMETHODCALLTYPE MyBeginScene(IDirect3DDevice8* pThis)
-	//{
-	//	d3ddebugprintf(__FUNCTION__ " called.\n");
-	//	HRESULT rv = BeginScene(pThis);
-	//	return rv;
-	//}
-
- //   static HRESULT(STDMETHODCALLTYPE *EndScene)(IDirect3DDevice8* pThis);
- //   static HRESULT STDMETHODCALLTYPE MyEndScene(IDirect3DDevice8* pThis)
-	//{
-	//	d3ddebugprintf(__FUNCTION__ " called.\n");
-	//	HRESULT rv = EndScene(pThis);
-	//	return rv;
-	//}
 
     static HRESULT(STDMETHODCALLTYPE *Clear)(IDirect3DDevice8* pThis, DWORD Count,CONST D3DRECT* pRects,DWORD Flags,D3DCOLOR Color,float Z,DWORD Stencil);
     static HRESULT STDMETHODCALLTYPE MyClear(IDirect3DDevice8* pThis, DWORD Count,CONST D3DRECT* pRects,DWORD Flags,D3DCOLOR Color,float Z,DWORD Stencil)
@@ -335,80 +391,54 @@ struct MyDirect3DDevice8
 	}
 
 
-/*
 
-#undef AUTOMETHOD
-#define AUTOMETHOD(x) \
-	static HRESULT(STDMETHODCALLTYPE *x)(PARAMS); \
-	static HRESULT STDMETHODCALLTYPE My##x(PARAMS) \
-	{ \
-		debugprintf(__FUNCTION__ "(0x%X) called.\n", pThis); \
-		HRESULT rv = x(ARGS); \
-		return rv; \
+
+	static HRESULT(STDMETHODCALLTYPE *CreateTexture)(IDirect3DDevice8* pThis, UINT Width,UINT Height,UINT Levels,DWORD Usage,D3DFORMAT Format,D3DPOOL Pool,IDirect3DTexture8** ppTexture);
+	static HRESULT STDMETHODCALLTYPE MyCreateTexture(IDirect3DDevice8* pThis, UINT Width,UINT Height,UINT Levels,DWORD Usage,D3DFORMAT Format,D3DPOOL Pool,IDirect3DTexture8** ppTexture)
+	{
+		d3ddebugprintf(__FUNCTION__ "(%dx%d, pool=%d) called.\n", Width, Height, Pool);
+		HRESULT rv = CreateTexture(pThis,Width,Height,Levels,Usage,Format,Pool,ppTexture);
+		if(SUCCEEDED(rv))
+		{
+			HookCOMInterface(IID_IDirect3DTexture8, reinterpret_cast<LPVOID*>(ppTexture));
+
+			IDirect3DTexture8* pTexture = *ppTexture;
+			int numLevels = pTexture->GetLevelCount();
+			for(int i = 0; i < numLevels; i++)
+			{
+				IDirect3DSurface8* pSurface = NULL;
+				if(SUCCEEDED(pTexture->GetSurfaceLevel(i, &pSurface)))
+				{
+					HookCOMInterface(IID_IDirect3DSurface8, reinterpret_cast<LPVOID*>(&pSurface));
+					IDirect3DSurface8_CustomData& surf8 = surface8data[pSurface];
+					surf8.ownedByTexture = true;
+					pSurface->Release();
+				}
+			}
+		}
+		return rv;
 	}
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, IDirect3DSurface8* pSourceSurface,CONST RECT* pSourceRectsArray,UINT cRects,IDirect3DSurface8* pDestinationSurface,CONST POINT* pDestPointsArray
-#define ARGS pThis,pSourceSurface,pSourceRectsArray,cRects,pDestinationSurface,pDestPointsArray
-    AUTOMETHOD(CopyRects)
-
-//#undef ARGS
-//#undef PARAMS
-//#define PARAMS IDirect3DDevice8* pThis, IDirect3DBaseTexture8* pSourceTexture,IDirect3DBaseTexture8* pDestinationTexture
-//#define ARGS pThis,pSourceTexture,pDestinationTexture
-//    AUTOMETHOD(UpdateTexture)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis
-#define ARGS pThis
-    AUTOMETHOD(BeginScene)
-    AUTOMETHOD(EndScene)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, DWORD Count,CONST D3DRECT* pRects,DWORD Flags,D3DCOLOR Color,float Z,DWORD Stencil
-#define ARGS pThis,Count,pRects,Flags,Color,Z,Stencil
-    AUTOMETHOD(Clear)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount
-#define ARGS pThis,PrimitiveType,StartVertex,PrimitiveCount
-    AUTOMETHOD(DrawPrimitive)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT minIndex,UINT NumVertices,UINT startIndex,UINT primCount
-#define ARGS pThis,PrimitiveType,minIndex,NumVertices,startIndex,primCount
-    AUTOMETHOD(DrawIndexedPrimitive)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride
-#define ARGS pThis,PrimitiveType,PrimitiveCount,pVertexStreamZeroData,VertexStreamZeroStride
-    AUTOMETHOD(DrawPrimitiveUP)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertexIndices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride
-#define ARGS pThis,PrimitiveType,MinVertexIndex,NumVertexIndices,PrimitiveCount,pIndexData,IndexDataFormat,pVertexStreamZeroData,VertexStreamZeroStride
-    AUTOMETHOD(DrawIndexedPrimitiveUP)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, UINT Handle,CONST float* pNumSegs,CONST D3DRECTPATCH_INFO* pRectPatchInfo
-#define ARGS pThis,Handle,pNumSegs,pRectPatchInfo
-    AUTOMETHOD(DrawRectPatch)
-
-#undef ARGS
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, UINT Handle,CONST float* pNumSegs,CONST D3DTRIPATCH_INFO* pTriPatchInfo
-#define ARGS pThis,Handle,pNumSegs,pTriPatchInfo
-    AUTOMETHOD(DrawTriPatch)
-
-*/
+	static HRESULT(STDMETHODCALLTYPE *CreateRenderTarget)(IDirect3DDevice8* pThis, UINT Width,UINT Height,D3DFORMAT Format,D3DMULTISAMPLE_TYPE MultiSample,BOOL Lockable,IDirect3DSurface8** ppSurface);
+	static HRESULT STDMETHODCALLTYPE MyCreateRenderTarget(IDirect3DDevice8* pThis, UINT Width,UINT Height,D3DFORMAT Format,D3DMULTISAMPLE_TYPE MultiSample,BOOL Lockable,IDirect3DSurface8** ppSurface)
+	{
+		d3ddebugprintf(__FUNCTION__ "(%dx%d) called.\n", Width, Height);
+		Lockable = TRUE;
+		HRESULT rv = CreateRenderTarget(pThis,Width,Height,Format,MultiSample,Lockable,ppSurface);
+		if(SUCCEEDED(rv))
+		{
+			HookCOMInterface(IID_IDirect3DSurface8, reinterpret_cast<LPVOID*>(ppSurface));
+			IDirect3DSurface8_CustomData& surf8 = surface8data[*ppSurface];
+			surf8.ownedByTexture = false;
+		}
+		return rv;
+	}
+	//static HRESULT(STDMETHODCALLTYPE *CreateImageSurface)(IDirect3DDevice8* pThis, UINT Width,UINT Height,D3DFORMAT Format,IDirect3DSurface8** ppSurface);
+	//static HRESULT STDMETHODCALLTYPE MyCreateImageSurface(IDirect3DDevice8* pThis, UINT Width,UINT Height,D3DFORMAT Format,IDirect3DSurface8** ppSurface)
+	//{
+	//	d3ddebugprintf(__FUNCTION__ " called.\n");
+	//	HRESULT rv = CreateImageSurface(pThis,Width,Height,Format,ppSurface);
+	//	return rv;
+	//}
 
 
 
@@ -420,54 +450,16 @@ HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::Reset)(IDirect3DDevice8* pThis, D
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::CreateAdditionalSwapChain)(IDirect3DDevice8* pThis, D3DPRESENT_PARAMETERS* pPresentationParameters,IDirect3DSwapChain8** pSwapChain) = 0;
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::SetRenderTarget)(IDirect3DDevice8* pThis, IDirect3DSurface8* pRenderTarget,IDirect3DSurface8* pNewZStencil) = 0;
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::GetRenderTarget)(IDirect3DDevice8* pThis, IDirect3DSurface8** ppRenderTarget) = 0;
-
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::CopyRects)(IDirect3DDevice8* pThis, IDirect3DSurface8* pSourceSurface,CONST RECT* pSourceRectsArray,UINT cRects,IDirect3DSurface8* pDestinationSurface,CONST POINT* pDestPointsArray) = 0;
-//HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::BeginScene)(IDirect3DDevice8* pThis) = 0;
-//HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::EndScene)(IDirect3DDevice8* pThis) = 0;
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::DrawIndexedPrimitive)(IDirect3DDevice8* pThis, D3DPRIMITIVETYPE primitiveType,UINT minIndex,UINT NumVertices,UINT startIndex,UINT primCount) = 0;
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::Clear)(IDirect3DDevice8* pThis, DWORD Count,CONST D3DRECT* pRects,DWORD Flags,D3DCOLOR Color,float Z,DWORD Stencil) = 0;
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::DrawPrimitive)(IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount) = 0;
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::DrawPrimitiveUP)(IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride) = 0;
 HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::DrawIndexedPrimitiveUP)(IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertexIndices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride) = 0;
+ULONG (STDMETHODCALLTYPE* MyDirect3DDevice8::Release)(IDirect3DDevice8* pThis) = 0;
+HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::CreateTexture)(IDirect3DDevice8* pThis, UINT Width,UINT Height,UINT Levels,DWORD Usage,D3DFORMAT Format,D3DPOOL Pool,IDirect3DTexture8** ppTexture) = 0;
+HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::CreateRenderTarget)(IDirect3DDevice8* pThis, UINT Width,UINT Height,D3DFORMAT Format,D3DMULTISAMPLE_TYPE MultiSample,BOOL Lockable,IDirect3DSurface8** ppSurface) = 0;
 
-
-/*
-
-#undef AUTOMETHOD
-#define AUTOMETHOD(x) HRESULT (STDMETHODCALLTYPE* MyDirect3DDevice8::x)(PARAMS) = 0;
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, IDirect3DSurface8* pSourceSurface,CONST RECT* pSourceRectsArray,UINT cRects,IDirect3DSurface8* pDestinationSurface,CONST POINT* pDestPointsArray
-    AUTOMETHOD(CopyRects)
-#undef PARAMS
-//#define PARAMS IDirect3DDevice8* pThis, IDirect3DBaseTexture8* pSourceTexture,IDirect3DBaseTexture8* pDestinationTexture
-//    AUTOMETHOD(UpdateTexture)
-//#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis
-    AUTOMETHOD(BeginScene)
-    AUTOMETHOD(EndScene)
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, DWORD Count,CONST D3DRECT* pRects,DWORD Flags,D3DCOLOR Color,float Z,DWORD Stencil
-    AUTOMETHOD(Clear)
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT StartVertex,UINT PrimitiveCount
-    AUTOMETHOD(DrawPrimitive)
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT minIndex,UINT NumVertices,UINT startIndex,UINT primCount
-    AUTOMETHOD(DrawIndexedPrimitive)
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT PrimitiveCount,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride
-    AUTOMETHOD(DrawPrimitiveUP)
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, D3DPRIMITIVETYPE PrimitiveType,UINT MinVertexIndex,UINT NumVertexIndices,UINT PrimitiveCount,CONST void* pIndexData,D3DFORMAT IndexDataFormat,CONST void* pVertexStreamZeroData,UINT VertexStreamZeroStride
-    AUTOMETHOD(DrawIndexedPrimitiveUP)
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, UINT Handle,CONST float* pNumSegs,CONST D3DRECTPATCH_INFO* pRectPatchInfo
-    AUTOMETHOD(DrawRectPatch)
-#undef PARAMS
-#define PARAMS IDirect3DDevice8* pThis, UINT Handle,CONST float* pNumSegs,CONST D3DTRIPATCH_INFO* pTriPatchInfo
-    AUTOMETHOD(DrawTriPatch)
-
-*/
 
 
 struct MyDirect3DSwapChain8
@@ -476,7 +468,20 @@ struct MyDirect3DSwapChain8
 	{
 		BOOL rv = FALSE;
 		rv |= VTHOOKFUNC(IDirect3DSwapChain8, Present);
+		rv |= VTHOOKFUNC(IDirect3DSwapChain8, Release);
 		rv |= HookVTable(obj, 0, (FARPROC)MyQueryInterface, (FARPROC&)QueryInterface, __FUNCTION__": QueryInterface");
+		return rv;
+	}
+
+	static ULONG(STDMETHODCALLTYPE *Release)(IDirect3DSwapChain8* pThis);
+	static ULONG STDMETHODCALLTYPE MyRelease(IDirect3DSwapChain8* pThis)
+	{
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called.\n", pThis);
+		ULONG rv = Release(pThis);
+		if(rv == 0)
+		{
+			if(s_saved_d3d8SwapChain == pThis) { s_saved_d3d8SwapChain = NULL; }
+		}
 		return rv;
 	}
 
@@ -490,8 +495,8 @@ struct MyDirect3DSwapChain8
 		return rv;
 	}
 
-	static HRESULT(STDMETHODCALLTYPE *Present)(IDirect3DSwapChain8* pThis, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion,DWORD dwFlags);
-	static HRESULT STDMETHODCALLTYPE MyPresent(IDirect3DSwapChain8* pThis, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion,DWORD dwFlags)
+	static HRESULT(STDMETHODCALLTYPE *Present)(IDirect3DSwapChain8* pThis, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion);
+	static HRESULT STDMETHODCALLTYPE MyPresent(IDirect3DSwapChain8* pThis, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion)
 	{
 		d3ddebugprintf(__FUNCTION__ " called.\n");
 
@@ -499,24 +504,415 @@ struct MyDirect3DSwapChain8
 		if(ShouldSkipDrawing(true, false))
 			rv = D3D_OK;
 		else
-			rv = Present(pThis, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion, dwFlags);
+			rv = Present(pThis, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 
 		IDirect3DDevice8* pDevice;
 		//if(SUCCEEDED(pThis->GetDevice(&pDevice)))
 		if(0 != (pDevice = d3d8SwapChainToDeviceMap[pThis]) && !redrawingScreen)
+		{
+			s_saved_d3d8SwapChain = pThis;
+			s_saved_d3d8Device = pDevice;
+			s_savedD3D8pSrcRect = pSourceRect ? &s_savedD3D8SrcRect : NULL;
+			s_savedD3D8pDstRect = pDestRect ? &s_savedD3D8DstRect : NULL;
+			if(pSourceRect) s_savedD3D8SrcRect = *pSourceRect;
+			if(pDestRect) s_savedD3D8DstRect = *pDestRect;
+			s_savedD3D8HWND = hDestWindowOverride ? hDestWindowOverride : s_savedD3D8DefaultHWND;
+			GetClientRect(s_savedD3D8HWND, &s_savedD3D8ClientRect);
+
 			MyDirect3DDevice8::PresentFrameBoundary(pDevice,pSourceRect,pDestRect);
+
+			d3d8BackBufDirty = false;
+		}
 		return rv;
 	}
 };
 
 HRESULT (STDMETHODCALLTYPE* MyDirect3DSwapChain8::QueryInterface)(IDirect3DSwapChain8* pThis, REFIID riid, void** ppvObj) = 0;
-HRESULT (STDMETHODCALLTYPE* MyDirect3DSwapChain8::Present)(IDirect3DSwapChain8* pThis, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion,DWORD dwFlags) = 0;
+HRESULT (STDMETHODCALLTYPE* MyDirect3DSwapChain8::Present)(IDirect3DSwapChain8* pThis, CONST RECT* pSourceRect,CONST RECT* pDestRect,HWND hDestWindowOverride,CONST RGNDATA* pDirtyRegion) = 0;
+ULONG (STDMETHODCALLTYPE* MyDirect3DSwapChain8::Release)(IDirect3DSwapChain8* pThis) = 0;
+
+
+
+
+// surfaces are hooked in order to backup their video memory in savestates
+template<int IMPL_ID>
+struct MyDirect3DSurface8
+{
+	static void* sm_vtable;
+	static BOOL Hook(IDirect3DSurface8* obj)
+	{
+		void* vtable = (void*)*(size_t*)obj;
+		if(sm_vtable && sm_vtable != vtable)
+			return 0; // try next IMPL_ID
+
+		VTHOOKFUNC(IDirect3DSurface8, Release);
+		VTHOOKFUNC(IDirect3DSurface8, UnlockRect);
+		VTHOOKFUNC(IDirect3DSurface8, QueryInterface);
+		VTHOOKFUNC(IDirect3DSurface8, FreePrivateData);
+		VTHOOKFUNC(IDirect3DSurface8, SetPrivateData);
+
+		if(sm_vtable == vtable)
+			return -1; // already hooked
+
+		sm_vtable = vtable;
+		return 1; // hooked new
+	}
+
+	static ULONG (STDMETHODCALLTYPE *Release)(IDirect3DSurface8* pThis);
+	static ULONG STDMETHODCALLTYPE MyRelease(IDirect3DSurface8* pThis)
+	{
+		ULONG rv = Release(pThis);
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called, refcount -> %d.\n", pThis, rv);
+		// note: pThis is invalid to dereference now, if rv==0
+		if(!rv)
+		{
+			IDirect3DSurface8_CustomData& surf8 = surface8data[pThis];
+			if(!surf8.isBackBuffer) // back buffer's ref count goes to 0 every frame? not sure why
+			{
+				surf8.videoMemoryBackupDirty = FALSE;
+
+				void*& pixels = surf8.videoMemoryPixelBackup;
+				free(pixels);
+				pixels = NULL;
+			}
+		}
+		return rv;
+	}
+
+
+    static HRESULT(STDMETHODCALLTYPE *SetPrivateData)(IDirect3DSurface8* pThis, REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags);
+    static HRESULT STDMETHODCALLTYPE MySetPrivateData(IDirect3DSurface8* pThis, REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags)
+	{
+		HRESULT hr = SetPrivateData(pThis,refguid,pData,SizeOfData,Flags);
+
+		IDirect3DSurface8_CustomData& surf8 = surface8data[pThis];
+		surf8.videoMemoryBackupDirty = TRUE;
+
+		return hr;
+	}
+
+    static HRESULT(STDMETHODCALLTYPE *FreePrivateData)(IDirect3DSurface8* pThis, REFGUID refguid);
+    static HRESULT STDMETHODCALLTYPE MyFreePrivateData(IDirect3DSurface8* pThis, REFGUID refguid)
+	{
+		HRESULT hr = FreePrivateData(pThis,refguid);
+
+		IDirect3DSurface8_CustomData& surf8 = surface8data[pThis];
+		surf8.videoMemoryBackupDirty = FALSE;
+		void*& pixels = surf8.videoMemoryPixelBackup;
+		free(pixels);
+		pixels = NULL;
+
+		return hr;
+	}
+
+
+	static HRESULT(STDMETHODCALLTYPE *QueryInterface)(IDirect3DSurface8* pThis, REFIID riid, void** ppvObj);
+	static HRESULT STDMETHODCALLTYPE MyQueryInterface(IDirect3DSurface8* pThis, REFIID riid, void** ppvObj)
+	{
+		d3ddebugprintf(__FUNCTION__ " called (0x%X).\n", riid.Data1);
+		HRESULT rv = QueryInterface(pThis, riid, ppvObj);
+		if(SUCCEEDED(rv))
+			HookCOMInterface(riid, ppvObj);
+		return rv;
+	}
+
+	static HRESULT(STDMETHODCALLTYPE *UnlockRect)(IDirect3DSurface8* pThis);
+	static HRESULT STDMETHODCALLTYPE MyUnlockRect(IDirect3DSurface8* pThis)
+	{
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called.\n", pThis);
+		HRESULT rv = UnlockRect(pThis);
+		IDirect3DSurface8_CustomData& surf8 = surface8data[pThis];
+		surf8.videoMemoryBackupDirty = TRUE;
+		return rv;
+	}
+};
+
+
+#define HRESULT long // some versions of visual studio (including 2008) don't understand "typedef long HRESULT;" (the compiler claims HRESULT is an undefined type even after it's typedef'd to long)
+
+#define DEF(x,IMPL_ID) \
+	ULONG (STDMETHODCALLTYPE* MyDirect3DSurface8<IMPL_ID>::Release)(x* pThis) = 0; \
+	HRESULT(STDMETHODCALLTYPE* MyDirect3DSurface8<IMPL_ID>::QueryInterface)(x* pThis, REFIID riid, void** ppvObj) = 0; \
+    HRESULT(STDMETHODCALLTYPE* MyDirect3DSurface8<IMPL_ID>::UnlockRect)(x* pThis) = 0; \
+    HRESULT(STDMETHODCALLTYPE* MyDirect3DSurface8<IMPL_ID>::SetPrivateData)(x* pThis, REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags) = 0; \
+    HRESULT(STDMETHODCALLTYPE* MyDirect3DSurface8<IMPL_ID>::FreePrivateData)(x* pThis, REFGUID refguid) = 0; \
+	void* MyDirect3DSurface8<IMPL_ID>::sm_vtable = 0;
+
+	DEF(IDirect3DSurface8, 0)
+	DEF(IDirect3DSurface8, 1)
+	DEF(IDirect3DSurface8, 2)
+#undef DEF
+
+#undef HRESULT
+
+
+struct MyDirect3DTexture8
+{
+	static BOOL Hook(IDirect3DTexture8* obj)
+	{
+		BOOL rv = FALSE;
+		rv |= VTHOOKFUNC(IDirect3DTexture8, Release);
+		rv |= VTHOOKFUNC(IDirect3DTexture8, UnlockRect);
+		rv |= VTHOOKFUNC(IDirect3DTexture8, QueryInterface);
+		rv |= VTHOOKFUNC(IDirect3DTexture8, FreePrivateData);
+		rv |= VTHOOKFUNC(IDirect3DTexture8, SetPrivateData);
+
+		IDirect3DTexture8_CustomData& tex8 = texture8data[obj];
+		tex8.valid = true;
+
+		return rv;
+	}
+
+	static ULONG (STDMETHODCALLTYPE *Release)(IDirect3DTexture8* pThis);
+	static ULONG STDMETHODCALLTYPE MyRelease(IDirect3DTexture8* pThis)
+	{
+		ULONG rv = Release(pThis);
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called, refcount -> %d.\n", pThis, rv);
+		// note: pThis is invalid to dereference now, if rv==0
+		if(!rv)
+		{
+			IDirect3DTexture8_CustomData& tex8 = texture8data[pThis];
+			tex8.valid = false;
+		}
+		return rv;
+	}
+
+
+    static HRESULT(STDMETHODCALLTYPE *SetPrivateData)(IDirect3DTexture8* pThis, REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags);
+    static HRESULT STDMETHODCALLTYPE MySetPrivateData(IDirect3DTexture8* pThis, REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags)
+	{
+		HRESULT hr = SetPrivateData(pThis,refguid,pData,SizeOfData,Flags);
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called.\n", pThis);
+
+		IDirect3DTexture8_CustomData& tex8 = texture8data[pThis];
+		tex8.dirty = true;
+
+		return hr;
+	}
+
+    static HRESULT(STDMETHODCALLTYPE *FreePrivateData)(IDirect3DTexture8* pThis, REFGUID refguid);
+    static HRESULT STDMETHODCALLTYPE MyFreePrivateData(IDirect3DTexture8* pThis, REFGUID refguid)
+	{
+		HRESULT hr = FreePrivateData(pThis,refguid);
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called.\n", pThis);
+
+		IDirect3DTexture8_CustomData& tex8 = texture8data[pThis];
+		tex8.dirty = false;
+		tex8.valid = false;
+
+		return hr;
+	}
+
+
+	static HRESULT(STDMETHODCALLTYPE *QueryInterface)(IDirect3DTexture8* pThis, REFIID riid, void** ppvObj);
+	static HRESULT STDMETHODCALLTYPE MyQueryInterface(IDirect3DTexture8* pThis, REFIID riid, void** ppvObj)
+	{
+		d3ddebugprintf(__FUNCTION__ " called (0x%X).\n", riid.Data1);
+		HRESULT rv = QueryInterface(pThis, riid, ppvObj);
+		if(SUCCEEDED(rv))
+			HookCOMInterface(riid, ppvObj);
+		return rv;
+	}
+
+	static HRESULT(STDMETHODCALLTYPE *UnlockRect)(IDirect3DTexture8* pThis, UINT Level);
+	static HRESULT STDMETHODCALLTYPE MyUnlockRect(IDirect3DTexture8* pThis, UINT Level)
+	{
+		d3ddebugprintf(__FUNCTION__ "(0x%X) called.\n", pThis);
+		HRESULT rv = UnlockRect(pThis, Level);
+		IDirect3DTexture8_CustomData& tex8 = texture8data[pThis];
+		tex8.dirty = true;
+		return rv;
+	}
+};
+
+#define HRESULT long // some versions of visual studio (including 2008) don't understand "typedef long HRESULT;" (the compiler claims HRESULT is an undefined type even after it's typedef'd to long)
+
+#define DEF(x) \
+	ULONG (STDMETHODCALLTYPE* MyDirect3DTexture8::Release)(x* pThis) = 0; \
+	HRESULT(STDMETHODCALLTYPE* MyDirect3DTexture8::QueryInterface)(x* pThis, REFIID riid, void** ppvObj) = 0; \
+    HRESULT(STDMETHODCALLTYPE* MyDirect3DTexture8::UnlockRect)(x* pThis, UINT) = 0; \
+    HRESULT(STDMETHODCALLTYPE* MyDirect3DTexture8::SetPrivateData)(x* pThis, REFGUID refguid,CONST void* pData,DWORD SizeOfData,DWORD Flags) = 0; \
+    HRESULT(STDMETHODCALLTYPE* MyDirect3DTexture8::FreePrivateData)(x* pThis, REFGUID refguid) = 0;
+
+	DEF(IDirect3DTexture8)
+#undef DEF
+
+#undef HRESULT
+
+
+
+
+static void BackupVideoMemory8(IDirect3DSurface8* pThis)
+{
+	IDirect3DSurface8_CustomData& surf8 = surface8data[pThis];
+	//if(!surf8.videoMemoryBackupDirty)
+	//	return;
+	D3DSURFACE_DESC desc = {};
+	if(SUCCEEDED(pThis->GetDesc(&desc)))
+	{
+		D3DLOCKED_RECT lockedRect;
+		if(SUCCEEDED(pThis->LockRect(&lockedRect, NULL, D3DLOCK_NO_DIRTY_UPDATE|D3DLOCK_READONLY|D3DLOCK_NOSYSLOCK)))
+		{
+			int size = lockedRect.Pitch * desc.Height;
+			void*& pixels = surf8.videoMemoryPixelBackup;
+			pixels = realloc(pixels, size);
+			memcpy(pixels, lockedRect.pBits, size);
+			pThis->UnlockRect();
+		}
+	}
+	surf8.videoMemoryBackupDirty = FALSE;
+}
+
+static void RestoreVideoMemory8(IDirect3DSurface8* pThis)
+{
+	IDirect3DSurface8_CustomData& surf8 = surface8data[pThis];
+	if(surf8.videoMemoryBackupDirty)
+		return;
+	void*& pixels = surf8.videoMemoryPixelBackup;
+	if(pixels)
+	{
+		D3DSURFACE_DESC desc = {};
+		if(SUCCEEDED(pThis->GetDesc(&desc)))
+		{
+			D3DLOCKED_RECT lockedRect;
+			if(SUCCEEDED(pThis->LockRect(&lockedRect, NULL, D3DLOCK_NOSYSLOCK)))
+			{
+				int size = lockedRect.Pitch * desc.Height;
+				memcpy(lockedRect.pBits, pixels, size);
+				pThis->UnlockRect();
+			}
+		}
+	}
+	surf8.videoMemoryBackupDirty = FALSE;
+}
+
+void BackupVideoMemoryOfAllD3D8Surfaces()
+{
+	// save the backbuffer surface
+	IDirect3DSurface8* pBackBuffer;
+	if(d3d8BackBufDirty && s_saved_d3d8Device && SUCCEEDED(s_saved_d3d8Device->GetBackBuffer(0,D3DBACKBUFFER_TYPE_MONO,&pBackBuffer)))
+	{
+		IDirect3DSurface8_CustomData& surf8 = surface8data[pBackBuffer];
+		surf8.videoMemoryBackupDirty = true;
+		surf8.isBackBuffer = true;
+		BackupVideoMemory8(pBackBuffer);
+		pBackBuffer->Release();
+	}
+
+	// save texture-owned surfaces
+	// (textures seem to recycle surfaces internally without properly releasing them,
+	//  so I have to access each surface through its texture to avoid crashes)
+	for(std::map<IDirect3DTexture8*, IDirect3DTexture8_CustomData>::iterator
+		iter = texture8data.begin(); iter != texture8data.end(); iter++)
+	{
+		IDirect3DTexture8_CustomData& tex8 = iter->second;
+		if(!tex8.valid)
+			continue;
+		IDirect3DTexture8* tex = iter->first;
+		DWORD levels = tex->GetLevelCount();
+		for(DWORD i = 0; i < levels; i++)
+		{
+			IDirect3DSurface8* surf;
+			if(SUCCEEDED(tex->GetSurfaceLevel(i, &surf)))
+			{
+				if(tex8.dirty || surface8data[surf].videoMemoryBackupDirty)
+				{
+					BackupVideoMemory8(surf);
+					tex8.dirty = false;
+				}
+				surf->Release();
+			}
+		}
+	}
+	
+	// save non-texture-owned surfaces
+	for(std::map<IDirect3DSurface8*, IDirect3DSurface8_CustomData>::iterator
+		iter = surface8data.begin(); iter != surface8data.end(); iter++)
+	{
+		IDirect3DSurface8_CustomData& surf8 = iter->second;
+		if(surf8.videoMemoryBackupDirty && !surf8.ownedByTexture && !surf8.isBackBuffer)
+			BackupVideoMemory8(iter->first);
+	}
+}
+
+void RestoreVideoMemoryOfAllD3D8Surfaces()
+{
+	// load the backbuffer surface
+	IDirect3DSurface8* pBackBuffer;
+	if(s_saved_d3d8Device && SUCCEEDED(s_saved_d3d8Device->GetBackBuffer(0,D3DBACKBUFFER_TYPE_MONO,&pBackBuffer)))
+	{
+		RestoreVideoMemory8(pBackBuffer);
+		pBackBuffer->Release();
+	}
+
+	// load texture-owned surfaces
+	// (textures seem to recycle surfaces internally without properly releasing them,
+	//  so I have to access each surface through its texture to avoid crashes)
+	for(std::map<IDirect3DTexture8*, IDirect3DTexture8_CustomData>::iterator
+		iter = texture8data.begin(); iter != texture8data.end(); iter++)
+	{
+		IDirect3DTexture8_CustomData& tex8 = iter->second;
+		if(!tex8.valid)
+			continue;
+		IDirect3DTexture8* tex = iter->first;
+		DWORD levels = tex->GetLevelCount();
+		for(DWORD i = 0; i < levels; i++)
+		{
+			IDirect3DSurface8* surf;
+			if(SUCCEEDED(tex->GetSurfaceLevel(i, &surf)))
+			{
+				if(surface8data[surf].videoMemoryPixelBackup)
+					RestoreVideoMemory8(surf);
+				surf->Release();
+			}
+		}
+	}
+	
+	// load non-texture-owned surfaces
+	for(std::map<IDirect3DSurface8*, IDirect3DSurface8_CustomData>::iterator
+		iter = surface8data.begin(); iter != surface8data.end(); iter++)
+	{
+		IDirect3DSurface8_CustomData& surf8 = iter->second;
+		if(surf8.videoMemoryPixelBackup && !surf8.ownedByTexture && !surf8.isBackBuffer)
+			RestoreVideoMemory8(iter->first);
+	}
+}
+
+
+
+bool RedrawScreenD3D8()
+{
+	if(s_saved_d3d8Device)
+	{
+		RECT dstRect;
+		RECT* pDstRect = s_savedD3D8pDstRect;
+		if(pDstRect && !fakeDisplayValid)
+		{
+			dstRect = *pDstRect;
+			pDstRect = &dstRect;
+			RECT oldRect = s_savedD3D8ClientRect;
+			RECT newRect;
+			GetClientRect(s_savedD3D8HWND, &newRect);
+			dstRect.left = (dstRect.left - oldRect.left) * (newRect.right - newRect.left) / (oldRect.right - oldRect.left) + newRect.left;
+			dstRect.top = (dstRect.top - oldRect.top) * (newRect.bottom - newRect.top) / (oldRect.bottom - oldRect.top) + newRect.top;
+			dstRect.right = (dstRect.right - oldRect.left) * (newRect.right - newRect.left) / (oldRect.right - oldRect.left) + newRect.left;
+			dstRect.bottom = (dstRect.bottom - oldRect.top) * (newRect.bottom - newRect.top) / (oldRect.bottom - oldRect.top) + newRect.top;
+		}
+
+		HRESULT hr;
+		if(s_saved_d3d8SwapChain)
+			hr = s_saved_d3d8SwapChain->Present(s_savedD3D8pSrcRect,pDstRect,s_savedD3D8HWND,NULL);
+		else
+			hr = s_saved_d3d8Device->Present(s_savedD3D8pSrcRect,pDstRect,s_savedD3D8HWND,NULL);
+		return true;
+	}
+	return false;
+}
 
 
 
 
 
-DEFINE_LOCAL_GUID(IID_IDirect3D8,0x1dd9e8da,0x1c77,0x4d40,0xb0,0xcf,0x98,0xfe,0xfd,0xff,0x95,0x12);
 
 struct MyDirect3D8
 {
@@ -581,6 +977,7 @@ struct MyDirect3D8
 			HookCOMInterface(IID_IDirect3DDevice8, (LPVOID*)ppReturnedDeviceInterface);
 		//if(pPresentationParameters)
 		//	pPresentationParameters->Windowed = wasWindowed;
+		s_savedD3D8DefaultHWND = hFocusWindow;
 		return rv;
 	}
 };
@@ -613,6 +1010,8 @@ bool HookCOMInterfaceD3D8(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew)
 		VTHOOKRIID3(IDirect3D8,MyDirect3D8);
 		VTHOOKRIID3(IDirect3DDevice8,MyDirect3DDevice8);
 		VTHOOKRIID3(IDirect3DSwapChain8,MyDirect3DSwapChain8);
+		VTHOOKRIID3MULTI3(IDirect3DSurface8,MyDirect3DSurface8);
+		VTHOOKRIID3(IDirect3DTexture8,MyDirect3DTexture8);
 
 		default: return false;
 	}

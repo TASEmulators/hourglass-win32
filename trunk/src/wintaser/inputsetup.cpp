@@ -1264,13 +1264,23 @@ void Update_Input(HWND HWnd, bool frameSynced, bool allowExecute, bool isConfigI
 
 			if(pressed2)
 			{
-				if(isHotkeys && !button.alias) // (consider hotkeys with an alias game-button-like)
+				if(isHotkeys)
 				{
-					// require exactly the same modifiers
-					pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
-					pressed2 &= !(button.modifiers & MOD_SHIFT) == !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
-					pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
-					pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
+					if(!button.alias)
+					{
+						// require exactly the same modifiers
+						pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
+						pressed2 &= !(button.modifiers & MOD_SHIFT) == !(GetAsyncKeyState(VK_SHIFT) & 0x8000);
+						pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
+						pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
+					}
+					else // consider hotkeys with an alias game-button-like
+					{
+						if((button.modifiers & MOD_CONTROL) && !(GetAsyncKeyState(VK_CONTROL) & 0x8000)) pressed2 = false;
+						if((button.modifiers & MOD_SHIFT) && !(GetAsyncKeyState(MOD_SHIFT) & 0x8000)) pressed2 = false;
+						pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000); // is mainly special for the alt-tab case
+						if((button.modifiers & MOD_WIN) && !(GetAsyncKeyState(MOD_WIN) & 0x8000)) pressed2 = false;
+					}
 				}
 				else
 				{
@@ -1373,7 +1383,7 @@ bool IsHotkeyPress(bool isConfigInput)
 
 			if(pressed2)
 			{
-				if(!button.alias) // (consider hotkeys with an alias game-button-like)
+				if(!button.alias)
 				{
 					// require exactly the same modifiers
 					pressed2 &= !(button.modifiers & MOD_CONTROL) == !(GetAsyncKeyState(VK_CONTROL) & 0x8000);
@@ -1381,12 +1391,11 @@ bool IsHotkeyPress(bool isConfigInput)
 					pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000);
 					pressed2 &= !(button.modifiers & MOD_WIN) == !((GetAsyncKeyState(VK_LWIN)|GetAsyncKeyState(VK_RWIN)) & 0x8000);
 				}
-				else
+				else // consider hotkeys with an alias game-button-like
 				{
-					// require the button's modifiers but allow extra ones if also held (in case the extra modifier is being used as a separate button/action)
 					if((button.modifiers & MOD_CONTROL) && !(GetAsyncKeyState(VK_CONTROL) & 0x8000)) pressed2 = false;
 					if((button.modifiers & MOD_SHIFT) && !(GetAsyncKeyState(MOD_SHIFT) & 0x8000)) pressed2 = false;
-					if((button.modifiers & MOD_ALT) && !(GetAsyncKeyState(MOD_ALT) & 0x8000)) pressed2 = false;
+					pressed2 &= !(button.modifiers & MOD_ALT) == !(GetAsyncKeyState(VK_MENU) & 0x8000); // is mainly special for the alt-tab case
 					if((button.modifiers & MOD_WIN) && !(GetAsyncKeyState(MOD_WIN) & 0x8000)) pressed2 = false;
 				}
 			}
@@ -1869,6 +1878,7 @@ extern int fastForwardFlags;
 extern int timescale, timescaleDivisor;
 extern int allowLoadInstalledDlls, allowLoadUxtheme;
 extern int advancePastNonVideoFrames;
+extern bool advancePastNonVideoFramesConfigured;
 extern int threadMode;
 extern int usedThreadMode;
 extern int timersMode;
@@ -1877,6 +1887,8 @@ extern int waitSyncMode;
 extern int aviFrameCount;
 extern int aviSoundFrameCount;
 extern bool traceEnabled;
+extern int storeVideoMemoryInSavestates;
+extern int storeGuardedPagesInSavestates;
 extern int debugPrintMode;
 extern LogCategoryFlag includeLogFlags;
 extern LogCategoryFlag traceLogFlags;
@@ -1925,7 +1937,8 @@ int Save_Config(const char* filename)
 	SetPrivateProfileIntA("General", "Movie Read Only", nextLoadRecords, Conf_File);
 	SetPrivateProfileIntA("Graphics", "Force Windowed", forceWindowed, Conf_File);
 	SetPrivateProfileIntA("Tools", "Fast Forward Flags", fastForwardFlags, Conf_File);
-	SetPrivateProfileIntA("Input", "Skip Lag Frames", advancePastNonVideoFrames, Conf_File);
+	if(advancePastNonVideoFramesConfigured)
+		SetPrivateProfileIntA("Input", "Skip Lag Frames", advancePastNonVideoFrames, Conf_File);
 	SetPrivateProfileIntA("Input", "Background Input Focus Flags", inputFocusFlags, Conf_File);
 	SetPrivateProfileIntA("Input", "Background Hotkeys Focus Flags", hotkeysFocusFlags, Conf_File);
 
@@ -2026,6 +2039,7 @@ int Load_Config(const char* filename)
 	forceWindowed = GetPrivateProfileIntA("Graphics", "Force Windowed", forceWindowed, Conf_File);
 	fastForwardFlags = GetPrivateProfileIntA("Tools", "Fast Forward Flags", fastForwardFlags, Conf_File);
 	advancePastNonVideoFrames = GetPrivateProfileIntA("Input", "Skip Lag Frames", advancePastNonVideoFrames, Conf_File);
+	advancePastNonVideoFramesConfigured = 0!=GetPrivateProfileIntA("Input", "Skip Lag Frames", 0, Conf_File);
 	inputFocusFlags = GetPrivateProfileIntA("Input", "Background Input Focus Flags", inputFocusFlags, Conf_File);
 	hotkeysFocusFlags = GetPrivateProfileIntA("Input", "Background Hotkeys Focus Flags", hotkeysFocusFlags, Conf_File);
 
@@ -2156,6 +2170,7 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	HMENU DebugLoggingInclude = CreatePopupMenu();
 	HMENU DebugLoggingTrace = CreatePopupMenu();
 	HMENU DebugLoggingExclude = CreatePopupMenu();
+	HMENU Performance = CreatePopupMenu();
 	//HMENU Tools_Movies = CreatePopupMenu();
 	//HMENU Tools_AVI = CreatePopupMenu();
 	//HMENU Lua_Script = CreatePopupMenu();
@@ -2312,6 +2327,7 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	MENU_L(Exec, i++, Flags | ((truePause)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_USETRUEPAUSE, "", "Disable Pause Helper", 0);
 	MENU_L(Exec, i++, Flags | ((onlyHookChildProcesses)?MF_CHECKED:MF_UNCHECKED) | (started?MF_GRAYED:0), ID_EXEC_ONLYHOOKCHILDPROC, "", "Wait until sub-process creation" /*" (might help IWBTG)"*/, "can't change while running");
 	InsertMenu(Exec, i++, MF_SEPARATOR, NULL, NULL);
+	MENU_L(Exec, i++, Flags | MF_POPUP, (UINT)Performance, "", "&Performance", 0);
 	MENU_L(Exec, i++, Flags | MF_POPUP, (UINT)DebugLogging, "", "&Debug Logging", 0);
 //	InsertMenu(Exec, i++, MF_SEPARATOR, NULL, NULL);
 //	MENU_L(Exec, i++, Flags | (!started?MF_GRAYED:0), ID_EXEC_SUSPEND, "", "Suspend Secondary Threads", "must be running");
@@ -2405,14 +2421,23 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	MENU_L(ExecDlls, i++, Flags | ((allowLoadUxtheme)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_UXTHEME, "", "Allow loading uxtheme.dll (for non-classic window styles)", 0);
 	//int allowLoadInstalledDlls, allowLoadUxtheme;
 
+	// Performance Submenu
+	i = 0;
+	MENU_L(Performance, i++, Flags | ((traceEnabled)?MF_CHECKED:MF_UNCHECKED) | (started?MF_GRAYED:0), ID_DEBUGLOG_TOGGLETRACEENABLE, "", "Load All Symbols and dbghelp.dll", "can't change while running");
+	InsertMenu(Performance, i++, MF_SEPARATOR, NULL, NULL);
+	MENU_L(Performance, i++, Flags | ((storeVideoMemoryInSavestates)?MF_CHECKED:MF_UNCHECKED), ID_PERFORMANCE_TOGGLESAVEVIDMEM, "", "Store Video Memory in Savestates", 0);
+	MENU_L(Performance, i++, Flags | ((storeGuardedPagesInSavestates)?MF_CHECKED:MF_UNCHECKED), ID_PERFORMANCE_TOGGLESAVEGUARDED, "", "Store Guarded Memory Pages in Savestates", 0);
+	InsertMenu(Performance, i++, MF_SEPARATOR, NULL, NULL);
+	MENU_L(Performance, i++, Flags | (!started?MF_GRAYED:0), ID_PERFORMANCE_DEALLOCSTATES, "", "Discard All Savestates Now", "must be running");
+	MENU_L(Performance, i++, Flags | (!started?MF_GRAYED:0), ID_PERFORMANCE_DELETESTATES, "", "Delete All Savestates Now", "must be running");
+
+
 	// Debug Log Submenu
 	i = 0;
 	MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==0)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_DISABLED, "", "Disabled", 0);
 	if(debugPrintMode==1 || IsDebuggerPresent())
 		MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==1)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_DEBUGGER, "", "Send to Debugger", 0);
 	MENU_L(DebugLogging, i++, Flags | ((debugPrintMode==2)?MF_CHECKED:MF_UNCHECKED), ID_DEBUGLOG_LOGFILE, "", "Write to Log File", 0);
-	InsertMenu(DebugLogging, i++, MF_SEPARATOR, NULL, NULL);
-	MENU_L(DebugLogging, i++, Flags | ((!traceEnabled)?MF_CHECKED:MF_UNCHECKED) | (started?MF_GRAYED:0), ID_DEBUGLOG_TOGGLETRACEENABLE, "", "Disable Tracing (for faster startup)", "can't change while running");
 	InsertMenu(DebugLogging, i++, MF_SEPARATOR, NULL, NULL);
 	MENU_L(DebugLogging, i++, Flags | MF_POPUP, (UINT)DebugLoggingInclude, "", "&Print Categories", 0);
 	MENU_L(DebugLogging, i++, Flags | MF_POPUP, (UINT)DebugLoggingTrace, "", "&Trace Categories", 0);

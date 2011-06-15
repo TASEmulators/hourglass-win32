@@ -726,6 +726,8 @@ BOOL GetFunctionInfoFromAddresses( ULONG fnAddress, ULONG stackAddress, LPTSTR l
 					lpszSymbol2++;
 				}
 				nargs = numCommas + 1;
+				if(strstr(lpszSymbol, "::")) // first might be the this pointer
+					nargs++;
 			}
 		}
 		else if(!strcmp(lpszSymbol, "`string'"))
