@@ -2286,7 +2286,7 @@ public:
 	}
 	STDMETHOD(SampleToRefTime)(LONGLONG llSampleTime, REFERENCE_TIME *prfTime)
 	{
-		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		debuglog(LCF_DSOUND|LCF_TODO, __FUNCTION__ "(0x%X) called.\n", this);
 		// NYI
 		if(!prfTime)
 			return E_POINTER;
@@ -2295,7 +2295,7 @@ public:
 	}
 	STDMETHOD(RefTimeToSample)(REFERENCE_TIME rfTime, LONGLONG *pllSampleTime)
 	{
-		debuglog(LCF_DSOUND|LCF_TODO|LCF_ERROR, __FUNCTION__ "(0x%X) called.\n", this);
+		debuglog(LCF_DSOUND|LCF_TODO, __FUNCTION__ "(0x%X) called.\n", this);
 		// NYI
 		if(!pllSampleTime)
 			return E_POINTER;
