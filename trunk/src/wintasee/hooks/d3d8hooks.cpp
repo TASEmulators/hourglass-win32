@@ -10,6 +10,8 @@
 #include "../tls.h"
 #include <map>
 
+//#define SAVESTATE_DX8_TEXTURES
+
 void FakeBroadcastDisplayChange(int width, int height, int depth);
 
 DEFINE_LOCAL_GUID(IID_IDirect3D8,0x1DD9E8DA,0x1C77,0x4D40,0xB0,0xCF,0x98,0xFE,0xFD,0xFF,0x95,0x12);
@@ -532,7 +534,7 @@ HRESULT (STDMETHODCALLTYPE* MyDirect3DSwapChain8::Present)(IDirect3DSwapChain8* 
 ULONG (STDMETHODCALLTYPE* MyDirect3DSwapChain8::Release)(IDirect3DSwapChain8* pThis) = 0;
 
 
-
+#ifdef SAVESTATE_DX8_TEXTURES
 
 // surfaces are hooked in order to backup their video memory in savestates
 template<int IMPL_ID>
@@ -740,6 +742,8 @@ struct MyDirect3DTexture8
 #undef HRESULT
 
 
+#endif // SAVESTATE_DX8_TEXTURES
+
 
 
 static void BackupVideoMemory8(IDirect3DSurface8* pThis)
@@ -799,6 +803,7 @@ void BackupVideoMemoryOfAllD3D8Surfaces()
 		pBackBuffer->Release();
 	}
 
+#ifdef SAVESTATE_DX8_TEXTURES
 	// save texture-owned surfaces
 	// (textures seem to recycle surfaces internally without properly releasing them,
 	//  so I have to access each surface through its texture to avoid crashes)
@@ -833,6 +838,7 @@ void BackupVideoMemoryOfAllD3D8Surfaces()
 		if(surf8.videoMemoryBackupDirty && !surf8.ownedByTexture && !surf8.isBackBuffer)
 			BackupVideoMemory8(iter->first);
 	}
+#endif
 }
 
 void RestoreVideoMemoryOfAllD3D8Surfaces()
@@ -845,6 +851,7 @@ void RestoreVideoMemoryOfAllD3D8Surfaces()
 		pBackBuffer->Release();
 	}
 
+#ifdef SAVESTATE_DX8_TEXTURES
 	// load texture-owned surfaces
 	// (textures seem to recycle surfaces internally without properly releasing them,
 	//  so I have to access each surface through its texture to avoid crashes)
@@ -876,6 +883,7 @@ void RestoreVideoMemoryOfAllD3D8Surfaces()
 		if(surf8.videoMemoryPixelBackup && !surf8.ownedByTexture && !surf8.isBackBuffer)
 			RestoreVideoMemory8(iter->first);
 	}
+#endif
 }
 
 
@@ -1010,9 +1018,10 @@ bool HookCOMInterfaceD3D8(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew)
 		VTHOOKRIID3(IDirect3D8,MyDirect3D8);
 		VTHOOKRIID3(IDirect3DDevice8,MyDirect3DDevice8);
 		VTHOOKRIID3(IDirect3DSwapChain8,MyDirect3DSwapChain8);
+#ifdef SAVESTATE_DX8_TEXTURES
 		VTHOOKRIID3MULTI3(IDirect3DSurface8,MyDirect3DSurface8);
 		VTHOOKRIID3(IDirect3DTexture8,MyDirect3DTexture8);
-
+#endif
 		default: return false;
 	}
 	return true;
