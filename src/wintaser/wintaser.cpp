@@ -8958,6 +8958,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 									if(!(windowActivateFlags & 2))
 									{
 										windowActivateFlags |= 2;
+										CheckDlgButton(hDlg, IDC_MAKETOPMOST, windowActivateFlags & 2);
 										tasFlagsDirty = true;
 									}
 								}

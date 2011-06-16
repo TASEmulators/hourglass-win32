@@ -10,6 +10,8 @@
 #include "../tls.h"
 #include <map>
 
+//#define SAVESTATE_DX9_TEXTURES
+
 void FakeBroadcastDisplayChange(int width, int height, int depth);
 
 DEFINE_LOCAL_GUID(IID_IDirect3D9,0x81BDCBCA,0x64D4,0x426D,0xAE,0x8D,0xAD,0x1,0x47,0xF4,0x27,0x5C);
@@ -516,6 +518,7 @@ ULONG (STDMETHODCALLTYPE* MyDirect3DSwapChain9::Release)(IDirect3DSwapChain9* pT
 
 
 
+#ifdef SAVESTATE_DX9_TEXTURES
 
 // surfaces are hooked in order to backup their video memory in savestates
 template<int IMPL_ID>
@@ -723,6 +726,8 @@ struct MyDirect3DTexture9
 #undef HRESULT
 
 
+#endif // SAVESTATE_DX9_TEXTURES
+
 
 
 static void BackupVideoMemory9(IDirect3DSurface9* pThis)
@@ -788,7 +793,7 @@ void BackupVideoMemoryOfAllD3D9Surfaces()
 			}
 		}
 	}
-
+#ifdef SAVESTATE_DX9_TEXTURES
 	// save texture-owned surfaces
 	// (textures seem to recycle surfaces internally without properly releasing them,
 	//  so I have to access each surface through its texture to avoid crashes)
@@ -823,6 +828,7 @@ void BackupVideoMemoryOfAllD3D9Surfaces()
 		if(surf9.videoMemoryBackupDirty && !surf9.ownedByTexture && !surf9.isBackBuffer)
 			BackupVideoMemory9(iter->first);
 	}
+#endif
 }
 
 void RestoreVideoMemoryOfAllD3D9Surfaces()
@@ -841,7 +847,7 @@ void RestoreVideoMemoryOfAllD3D9Surfaces()
 			}
 		}
 	}
-
+#ifdef SAVESTATE_DX9_TEXTURES
 	// load texture-owned surfaces
 	// (textures seem to recycle surfaces internally without properly releasing them,
 	//  so I have to access each surface through its texture to avoid crashes)
@@ -873,6 +879,7 @@ void RestoreVideoMemoryOfAllD3D9Surfaces()
 		if(surf9.videoMemoryPixelBackup && !surf9.ownedByTexture && !surf9.isBackBuffer)
 			RestoreVideoMemory9(iter->first);
 	}
+#endif
 }
 
 
@@ -1002,9 +1009,10 @@ bool HookCOMInterfaceD3D9(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew)
 		VTHOOKRIID3(IDirect3D9,MyDirect3D9);
 		VTHOOKRIID3(IDirect3DDevice9,MyDirect3DDevice9);
 		VTHOOKRIID3(IDirect3DSwapChain9,MyDirect3DSwapChain9);
+#ifdef SAVESTATE_DX9_TEXTURES
 		VTHOOKRIID3MULTI3(IDirect3DSurface9,MyDirect3DSurface9);
 		VTHOOKRIID3(IDirect3DTexture9,MyDirect3DTexture9);
-
+#endif
 		default: return false;
 	}
 	return true;
