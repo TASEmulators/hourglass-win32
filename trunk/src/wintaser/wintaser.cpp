@@ -7446,6 +7446,7 @@ rewait:
 		TerminateThread(hDebuggerThread, -1);
 		DebuggerThreadFuncCleanup(INVALID_HANDLE_VALUE, hGameProcess);
 		debuggerThread = 0;
+		afterDebugThreadExit = true;
 	}
 }
 
