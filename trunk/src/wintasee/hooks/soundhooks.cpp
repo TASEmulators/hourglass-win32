@@ -104,6 +104,8 @@ public:
 		waveformat = NULL;
 		notifies = NULL;
 		numNotifies = 0;
+		InitializeCriticalSection(&m_bufferCS);
+		InitializeCriticalSection(&m_lockBufferCS);
 
 		refcount = 1;
 	}
@@ -121,6 +123,8 @@ public:
 		free(lockBuf);
 		free(waveformat);
 		free(notifies);
+		DeleteCriticalSection(&m_bufferCS);
+		DeleteCriticalSection(&m_lockBufferCS);
 	}
 
 	static EmulatedDirectSoundBuffer* Duplicate(const EmulatedDirectSoundBuffer* original)
@@ -311,10 +315,12 @@ public:
 		}
 
 		bufferSize = pcDSBufferDesc->dwBufferBytes;
+		EnterCriticalSection(&m_bufferCS);
 		bufferSize = min(max(bufferSize, DSBSIZE_MIN), DSBSIZE_MAX);
 		allocated = bufferSize;
 		buffer = (unsigned char*)realloc(buffer, allocated);
 		memset(buffer, (waveformat->wBitsPerSample <= 8) ? 0x80 : 0, allocated);
+		LeaveCriticalSection(&m_bufferCS);
 
 		capsFlags = pcDSBufferDesc->dwFlags;
 		if(!(capsFlags & DSBCAPS_LOCHARDWARE))
@@ -342,6 +348,8 @@ public:
 		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X)(dwOffset=%d, dwBytes=%d, dwFlags=0x%X) called.\n", this,dwOffset,dwBytes,dwFlags);
 		if(!buffer || !bufferSize)
 			return DSERR_INVALIDCALL;
+		EnterCriticalSection(&m_bufferCS);
+		EnterCriticalSection(&m_lockBufferCS);
 
 		if(!lockBuf)
 			lockBuf = (unsigned char*)realloc(lockBuf, bufferSize);
@@ -385,6 +393,7 @@ public:
 			if(pdwAudioBytes2)
 				*pdwAudioBytes2 = lockBytes2 = dwBytes + dwOffset - bufferSize;
 		}
+		LeaveCriticalSection(&m_bufferCS);
 
 		return DS_OK;
 	}
@@ -465,6 +474,7 @@ public:
 		debuglog(LCF_DSOUND, __FUNCTION__ "(0x%X) called.\n", this);
 		if(!lockBuf)
 			return DSERR_INVALIDCALL;
+		EnterCriticalSection(&m_bufferCS);
 		if(pvAudioPtr1 && pvAudioPtr1 == lockPtr1)
 		{
 			if(dwAudioBytes1 > lockBytes1)
@@ -486,6 +496,8 @@ public:
 			lockBuf = NULL;
 		}
 		ReplicateBufferIntoExtraAllocated();
+		LeaveCriticalSection(&m_bufferCS);
+		LeaveCriticalSection(&m_lockBufferCS);
 		return DS_OK;
 	}
     STDMETHOD(Restore)              ()
@@ -796,11 +808,13 @@ public:
 						// so I'm going to "cheat" and simply replicate the sound buffer as many times as needed.
 						if(unwrappedPlayCursor + waveformat->nBlockAlign > allocated)
 						{
+							EnterCriticalSection(&m_bufferCS);
 							allocated = unwrappedPlayCursor + waveformat->nBlockAlign;
 							buffer = (unsigned char*)realloc(buffer, allocated);
 							if(!buffer) { buffer = (unsigned char*)realloc(buffer, allocated); }
 							if(!buffer) { debuglog(LCF_ERROR, "FAILED TO ALLOCATE LOOP BUFFER\n"); }
 							ReplicateBufferIntoExtraAllocated();
+							LeaveCriticalSection(&m_bufferCS);
 						}
 
 						// now that we know the buffer's data is replicated far enough,
@@ -985,6 +999,8 @@ private:
 	DWORD capsFlags;
 	LPWAVEFORMATEX waveformat;
 	bool m_isFakePrimary;
+	CRITICAL_SECTION m_bufferCS;
+	CRITICAL_SECTION m_lockBufferCS;
 
 	DSBPOSITIONNOTIFY* notifies;
 	int numNotifies;
