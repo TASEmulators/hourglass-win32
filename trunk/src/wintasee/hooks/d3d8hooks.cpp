@@ -969,9 +969,6 @@ struct MyDirect3D8
 				if(SUCCEEDED(pThis->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &display_mode)))
 				{
 					pPresentationParameters->BackBufferFormat = display_mode.Format;
-					// in case
-					pPresentationParameters->BackBufferWidth = display_mode.Width;
-					pPresentationParameters->BackBufferHeight = display_mode.Height;
 				}
 				pPresentationParameters->BackBufferCount = 1;
 			}
