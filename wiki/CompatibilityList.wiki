@@ -26,6 +26,8 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 ||[http://rks.wikia.com/wiki/Rosenkreuzstilette Rosenkreuzstilette]||60 FPS, !DirectSound Disabled||?||?||?||videos exist||
 ||[http://translate.google.com/translate?hl=en&sl=ja&u=http://maglog.jp/alpha-secret-base/Article313069.html RotateGear]||60 FPS, Multithreading Disabled|| ||must manually clear save files|| ||Tested on XP, videos exist||
 ||!StickMan||60 FPS, !DirectSound Disabled|| ||?|| ||Tested on XP, videos exist||
+||[http://touhou.wikia.com/wiki/Super_Marisa_Land Super Marisa Land]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
+||[http://touhou.wikia.com/wiki/Super_Marisa_World Super Marisa World]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
 ||Syobon Action||?||?||?||?||videos exist||
 ||[http://www.bombergames.net/sorr_project/ Streets of Rage Remake]||60 FPS, Multithreading Disabled|| ||must manually clear save files|| ||Tested on XP||
 ||[http://www.asahi-net.or.jp/~cs8k-cyu/windows/tf_e.html Tumiki Fighters]||60 FPS, Multithreading Disabled|| || || ||Tested on XP||
