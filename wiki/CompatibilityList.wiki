@@ -7,7 +7,6 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 ||[http://distractionware.com/oracle/Games/Aquarium0.1.zip Aquarium]||60 FPS, Multithreading Disabled|| || || ||Tested on XP||
 ||Bunny Must Die||60 FPS||Fullscreen, 60 FPS, Timer||game starts slowly if fullscreen option is off|| ||Tested on XP and 7-x64, videos exist||
 ||[http://www.cavestory.org/info_about.php Cave Story]||50 FPS||Fullscreen, 640x480|| || ||Tested on XP and 7-x64, videos exist||
-||[http://daidai.moo.jp/dl.html Currant]||?||?||?||?||videos exist||
 ||[http://touhou.wikia.com/wiki/Embodiment_of_Scarlet_Devil Embodiment of Scarlet Devil]||60 FPS, ?||?||?||?||videos exist||
 ||[http://zarat.us/tra/offline-games/eversion.html Eversion]||60 FPS, Multithreading Disabled, Pause Helper Disabled|| ||a little unstable|| ||Tested on XP and 7-x64||
 ||[http://www.remar.se/daniel/herocore.php Hero Core]||40 FPS, Multithreading Disabled|| || || ||Tested on XP||
@@ -26,6 +25,7 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 ||[http://rks.wikia.com/wiki/Rosenkreuzstilette Rosenkreuzstilette]||60 FPS, !DirectSound Disabled||?||?||?||videos exist||
 ||[http://translate.google.com/translate?hl=en&sl=ja&u=http://maglog.jp/alpha-secret-base/Article313069.html RotateGear]||60 FPS, Multithreading Disabled|| ||must manually clear save files|| ||Tested on XP, videos exist||
 ||!StickMan||60 FPS, !DirectSound Disabled|| ||?|| ||Tested on XP, videos exist||
+||[http://daidai.moo.jp/dl.html Suguri]||?||?||?||?||videos exist||
 ||[http://touhou.wikia.com/wiki/Super_Marisa_Land Super Marisa Land]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
 ||[http://touhou.wikia.com/wiki/Super_Marisa_World Super Marisa World]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
 ||Syobon Action||?||?||?||?||videos exist||
