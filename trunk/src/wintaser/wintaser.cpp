@@ -67,6 +67,7 @@ TCHAR szWindowClass[MAX_LOADSTRING];
 BOOL InitInstance(HINSTANCE, int);
 BOOL CALLBACK DlgProc(HWND, UINT, WPARAM, LPARAM);
 //BOOL CALLBACK	ViewportDlgProc(HWND, UINT, WPARAM, LPARAM);
+static void EnableDisablePlayRecordButtons(HWND hDlg);
 
 
 FILE* debuglogfile = NULL;
@@ -1685,6 +1686,7 @@ void LoadGameStatePhase2(int slot)
 	stateLoaded = true;
 	SendTASFlags();
 
+	bool wasRecoveringStale = recoveringStale;
 	if(state.stale)
 	{
 		RecoverStaleState(slot);
@@ -1700,7 +1702,7 @@ void LoadGameStatePhase2(int slot)
 		}
 	}
 
-	if(!recoveringStale)
+	if(!wasRecoveringStale)
 		debugprintf("LOADED STATE %d\n", slot);
 	else
 		debugprintf("RECOVERING STATE %d\n", slot);
@@ -1709,7 +1711,7 @@ void LoadGameStatePhase2(int slot)
 	// OK, this is going to be way harder than saving the state,
 	// since we have to reconcile differences in allocated threads and memory regions
 
-	if(!recoveringStale)
+	if(!wasRecoveringStale)
 	{
 
 		//// store the noload regions
@@ -1854,22 +1856,23 @@ void LoadGameStatePhase2(int slot)
 	}
 
 	// load movie
-	if(nextLoadRecords || recoveringStale) // switch to recording / read+write
+	if(nextLoadRecords || wasRecoveringStale) // switch to recording / read+write
 	{
-		playback = false;
 		int rerecords = movie.rerecordCount;
 
 		movie = state.movie;
 		finished = (movie.currentFrame > (int)movie.frames.size());
 
-		movie.rerecordCount = unsaved ? (rerecords+1) : (rerecords);
+		movie.rerecordCount = (unsaved || playback) ? (rerecords+1) : (rerecords);
+		playback = false;
 		UpdateRerecordCountDisplay();
 
-		if(recoveringStale)
+		if(wasRecoveringStale)
 		{
 			//recoveringStaleFrame = movie.currentFrame;
 			playback = !nextLoadRecords;
 			paused = true;
+			EnableDisablePlayRecordButtons(hWnd);
 		}
 	}
 	else // switch to playback / read-only
@@ -6283,7 +6286,6 @@ static void DebuggerThreadFuncCleanup(HANDLE threadHandleToClose, HANDLE hProces
 }
 
 
-static void EnableDisablePlayRecordButtons(HWND hDlg);
 
 #define THREAD_NAME_EXCEPTION 0x406D1388
 #pragma pack(push,8)
@@ -8906,6 +8908,16 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 							paused = wasPaused;
 							tasFlagsDirty = true;
 						}
+					}
+					break;
+				case ID_FILES_RESUMERECORDING:
+					if(started && playback && !finished)
+					{
+						nextLoadRecords = true;
+						movie.rerecordCount++;
+						playback = false;
+						UpdateRerecordCountDisplay();
+						UpdateFrameCountDisplay(movie.currentFrame, 1);
 					}
 					break;
 				case IDC_EDIT_EXE:

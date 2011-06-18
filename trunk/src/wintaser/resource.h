@@ -284,6 +284,7 @@
 #define ID_FILES_RECORDMOV              40312
 #define ID_FILES_RESUMEMOVAS            40313
 #define ID_FILES_OPENMOV                40314
+#define ID_FILES_RESUMERECORDING        40315
 #define ID_AVI_NONE                     40330
 #define ID_AVI_BOTH                     40331
 #define ID_AVI_VIDEO                    40332
