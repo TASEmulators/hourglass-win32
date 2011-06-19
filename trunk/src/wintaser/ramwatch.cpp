@@ -62,7 +62,7 @@ bool VerifyWatchNotAlreadyAdded(const AddressWatcher& watch)
 {
 	for (int j = 0; j < WatchCount; j++)
 	{
-		if (IsSameWatch(rswatches[j], watch))
+		if(IsSameWatch(rswatches[j], watch))
 		{
 			if(RamWatchHWnd)
 				SetForegroundWindow(RamWatchHWnd);
@@ -84,7 +84,7 @@ bool InsertWatch(const AddressWatcher& Watch, char *Comment)
 	int i = WatchCount++;
 	AddressWatcher& NewWatch = rswatches[i];
 	NewWatch = Watch;
-	//if (NewWatch.comment) free(NewWatch.comment);
+	//if(NewWatch.comment) free(NewWatch.comment);
 	NewWatch.comment = (char *) malloc(strlen(Comment)+2);
 	EnterCriticalSection(&g_processMemCS);
 	NewWatch.CurValue = GetCurrentValue(NewWatch);
@@ -227,7 +227,7 @@ bool AskSave()
 {
 	//This function asks to save changes if the watch file contents have changed
 	//returns false only if a save was attempted but failed or was cancelled
-	if (RWfileChanged)
+	if(RWfileChanged)
 	{
 		int answer = MessageBox(MESSAGEBOXPARENT, "Save Changes?", "Ram Watch", MB_YESNOCANCEL);
 		if(answer == IDYES)
@@ -354,7 +354,7 @@ void OpenRWRecentFile(int memwRFileNumber)
 		return;
 
 	int rnum = memwRFileNumber;
-	if ((unsigned int)rnum >= MAX_RECENT_WATCHES)
+	if((unsigned int)rnum >= MAX_RECENT_WATCHES)
 		return; //just in case
 
 	char* x;
@@ -362,10 +362,10 @@ void OpenRWRecentFile(int memwRFileNumber)
 	while(true)
 	{
 		x = rw_recent_files[rnum];
-		if (!*x) 
+		if(!*x) 
 			return;		//If no recent files exist just return.  Useful for Load last file on startup (or if something goes screwy)
 
-		if (rnum) //Change order of recent files if not most recent
+		if(rnum) //Change order of recent files if not most recent
 		{
 			RWAddRecentFile(x);
 			rnum = 0;
@@ -381,13 +381,13 @@ void OpenRWRecentFile(int memwRFileNumber)
 
 	//loadwatches here
 	FILE *WatchFile = fopen(Str_Tmp_RW,"rb");
-	if (!WatchFile)
+	if(!WatchFile)
 	{
 		int answer = MessageBox(MESSAGEBOXPARENT,"Error opening file.","ERROR",MB_OKCANCEL);
-		if (answer == IDOK)
+		if(answer == IDOK)
 		{
 			rw_recent_files[rnum][0] = '\0';	//Clear file from list 
-			if (rnum)							//Update the ramwatch list
+			if(rnum)							//Update the ramwatch list
 				RWAddRecentFile(rw_recent_files[0]); 
 			else
 				RWAddRecentFile(rw_recent_files[1]);
@@ -399,7 +399,7 @@ void OpenRWRecentFile(int memwRFileNumber)
 	char mode;
 	fgets(Str_Tmp_RW,1024,WatchFile);
 	sscanf(Str_Tmp_RW,"%c%*s",&mode);
-	//if ((mode == '1' && !(SegaCD_Started)) || (mode == '2' && !(_32X_Started)))
+	//if((mode == '1' && !(SegaCD_Started)) || (mode == '2' && !(_32X_Started)))
 	//{
 	//	char Device[8];
 	//	strcpy(Device,(mode > '1')?"32X":"SegaCD");
@@ -412,11 +412,11 @@ void OpenRWRecentFile(int memwRFileNumber)
 	WatchAdd+=WatchCount;
 	for (int i = WatchCount; i < WatchAdd; i++)
 	{
-		while (i < 0)
+		while(i < 0)
 			i++;
 		do {
 			fgets(Str_Tmp_RW,1024,WatchFile);
-		} while (Str_Tmp_RW[0] == '\n');
+		} while(Str_Tmp_RW[0] == '\n');
 		sscanf(Str_Tmp_RW,"%*05X%*c%08X%*c%c%*c%c%*c%d",&(Temp.Address),&(Temp.Size),&(Temp.Type),&(Temp.WrongEndian));
 		Temp.WrongEndian = 0;
 		char *Comment = strrchr(Str_Tmp_RW,DELIM) + 1;
@@ -425,7 +425,7 @@ void OpenRWRecentFile(int memwRFileNumber)
 	}
 
 	fclose(WatchFile);
-	if (RamWatchHWnd)
+	if(RamWatchHWnd)
 		ListView_SetItemCount(GetDlgItem(RamWatchHWnd,IDC_WATCHLIST),WatchCount);
 	RWfileChanged=false;
 	return;
@@ -437,7 +437,7 @@ int Change_File_L(char *Dest, char *Dir, char *Titre, char *Filter, char *Ext, H
 
 	SetCurrentDirectory(thisprocessPath);
 
-	if (!strcmp(Dest, ""))
+	if(!strcmp(Dest, ""))
 	{
 		strcpy(Dest, "default.");
 		strcat(Dest, Ext);
@@ -457,7 +457,7 @@ int Change_File_L(char *Dest, char *Dir, char *Titre, char *Filter, char *Ext, H
 	ofn.lpstrDefExt = Ext;
 	ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 
-	if (GetOpenFileName(&ofn)) return 1;
+	if(GetOpenFileName(&ofn)) return 1;
 
 	return 0;
 }
@@ -468,7 +468,7 @@ int Change_File_S(char *Dest, char *Dir, char *Titre, char *Filter, char *Ext, H
 
 	SetCurrentDirectory(thisprocessPath);
 
-	if (!strcmp(Dest, ""))
+	if(!strcmp(Dest, ""))
 	{
 		strcpy(Dest, "default.");
 		strcat(Dest, Ext);
@@ -488,7 +488,7 @@ int Change_File_S(char *Dest, char *Dir, char *Titre, char *Filter, char *Ext, H
 	ofn.lpstrDefExt = Ext;
 	ofn.Flags = OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
 
-	if (GetSaveFileName(&ofn)) return 1;
+	if(GetSaveFileName(&ofn)) return 1;
 
 	return 0;
 }
@@ -503,7 +503,7 @@ bool Save_Watches()
 	if(Change_File_S(Str_Tmp_RW, thisprocessPath, "Save Watches", "Watchlist\0*.wch\0All Files\0*.*\0\0", "wch", RamWatchHWnd))
 	{
 		FILE *WatchFile = fopen(Str_Tmp_RW,"r+b");
-		if (!WatchFile) WatchFile = fopen(Str_Tmp_RW,"w+b");
+		if(!WatchFile) WatchFile = fopen(Str_Tmp_RW,"w+b");
 		//fputc(SegaCD_Started?'1':(_32X_Started?'2':'0'),WatchFile);
 		fputc('0',WatchFile);
 		fputc('\n',WatchFile);
@@ -528,15 +528,15 @@ bool Save_Watches()
 
 bool QuickSaveWatches()
 {
-if (RWfileChanged==false) return true; //If file has not changed, no need to save changes
-if (currentWatch[0] == NULL) //If there is no currently loaded file, run to Save as and then return
+if(RWfileChanged==false) return true; //If file has not changed, no need to save changes
+if(currentWatch[0] == NULL) //If there is no currently loaded file, run to Save as and then return
 	{
 		return Save_Watches();
 	}
 		
 		strcpy(Str_Tmp_RW,currentWatch);
 		FILE *WatchFile = fopen(Str_Tmp_RW,"r+b");
-		if (!WatchFile) WatchFile = fopen(Str_Tmp_RW,"w+b");
+		if(!WatchFile) WatchFile = fopen(Str_Tmp_RW,"w+b");
 		//fputc(SegaCD_Started?'1':(_32X_Started?'2':'0'),WatchFile);
 		fputc('0',WatchFile);
 		fputc('\n',WatchFile);
@@ -557,7 +557,7 @@ bool Load_Watches(bool clear, const char* filename)
 {
 	const char DELIM = '\t';
 	FILE* WatchFile = fopen(filename,"rb");
-	if (!WatchFile)
+	if(!WatchFile)
 	{
 		MessageBox(MESSAGEBOXPARENT,"Error opening file.","ERROR",MB_OK);
 		return false;
@@ -576,7 +576,7 @@ bool Load_Watches(bool clear, const char* filename)
 	char mode;
 	fgets(Str_Tmp_RW,1024,WatchFile);
 	sscanf(Str_Tmp_RW,"%c%*s",&mode);
-	//if ((mode == '1' && !(SegaCD_Started)) || (mode == '2' && !(_32X_Started)))
+	//if((mode == '1' && !(SegaCD_Started)) || (mode == '2' && !(_32X_Started)))
 	//{
 	//	char Device[8];
 	//	strcpy(Device,(mode > '1')?"32X":"SegaCD");
@@ -589,22 +589,24 @@ bool Load_Watches(bool clear, const char* filename)
 	WatchAdd+=WatchCount;
 	for (int i = WatchCount; i < WatchAdd; i++)
 	{
-		while (i < 0)
+		while(i < 0)
 			i++;
 		do {
 			fgets(Str_Tmp_RW,1024,WatchFile);
-		} while (Str_Tmp_RW[0] == '\n');
+		} while(Str_Tmp_RW[0] == '\n');
 		sscanf(Str_Tmp_RW,"%*05X%*c%08X%*c%c%*c%c%*c%d",&(Temp.Address),&(Temp.Size),&(Temp.Type),&(Temp.WrongEndian));
 		Temp.WrongEndian = 0;
-		char *Comment = strrchr(Str_Tmp_RW,DELIM) + 1;
+		char* Comment = strrchr(Str_Tmp_RW,DELIM) + 1;
 		if(Comment == (char*)NULL + 1)
 			continue;
-		*strrchr(Comment,'\n') = '\0';
+		char* newline = strrchr(Comment,'\n');
+		if(newline)
+			*newline = '\0';
 		InsertWatch(Temp,Comment);
 	}
 	
 	fclose(WatchFile);
-	if (RamWatchHWnd)
+	if(RamWatchHWnd)
 		ListView_SetItemCount(GetDlgItem(RamWatchHWnd,IDC_WATCHLIST),WatchCount);
 	RWfileChanged=false;
 	return true;
@@ -634,7 +636,7 @@ bool ResetWatches()
 		rswatches[WatchCount].comment = NULL;
 	}
 	WatchCount++;
-	if (RamWatchHWnd)
+	if(RamWatchHWnd)
 		ListView_SetItemCount(GetDlgItem(RamWatchHWnd,IDC_WATCHLIST),WatchCount);
 	RWfileChanged = false;
 	currentWatch[0] = NULL;
@@ -677,11 +679,11 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 			index = (int)lParam;
 			sprintf(Str_Tmp_RW,"%08X",rswatches[index].Address);
 			SetDlgItemText(hDlg,IDC_EDIT_COMPAREADDRESS,Str_Tmp_RW);
-			if (rswatches[index].comment != NULL)
+			if(rswatches[index].comment != NULL)
 				SetDlgItemText(hDlg,IDC_PROMPT_EDIT,rswatches[index].comment);
 			s = rswatches[index].Size;
 			t = rswatches[index].Type;
-			switch (s)
+			switch(s)
 			{
 				case 'b':
 					SendDlgItemMessage(hDlg, IDC_1_BYTE, BM_SETCHECK, BST_CHECKED, 0);
@@ -696,7 +698,7 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 					s = 0;
 					break;
 			}
-			switch (t)
+			switch(t)
 			{
 				case 's':
 					SendDlgItemMessage(hDlg, IDC_SIGNED, BM_SETCHECK, BST_CHECKED, 0);
@@ -738,7 +740,7 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 					return true;
 				case IDOK:
 				{
-					if (s && t)
+					if(s && t)
 					{
 						AddressWatcher Temp;
 						Temp.Size = s;
@@ -746,7 +748,7 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 						Temp.WrongEndian = false; //replace this when I get little endian working properly
 						GetDlgItemText(hDlg,IDC_EDIT_COMPAREADDRESS,Str_Tmp_RW,1024);
 						char *addrstr = Str_Tmp_RW;
-						if (strlen(Str_Tmp_RW) > 8) addrstr = &(Str_Tmp_RW[strlen(Str_Tmp_RW) - 9]);
+						if(strlen(Str_Tmp_RW) > 8) addrstr = &(Str_Tmp_RW[strlen(Str_Tmp_RW) - 9]);
 						for(int i = 0; addrstr[i]; i++) {if(toupper(addrstr[i]) == 'O') addrstr[i] = '0';}
 						sscanf(addrstr,"%08X",&(Temp.Address));
 
@@ -756,7 +758,7 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 						if(IsHardwareAddressValid(Temp.Address))
 						{
 							GetDlgItemText(hDlg,IDC_PROMPT_EDIT,Str_Tmp_RW,80);
-							if (index < WatchCount) RemoveWatch(index);
+							if(index < WatchCount) RemoveWatch(index);
 							InsertWatch(Temp,Str_Tmp_RW);
 							if(RamWatchHWnd)
 							{
@@ -772,9 +774,9 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 					else
 					{
 						strcpy(Str_Tmp_RW,"Error:");
-						if (!s)
+						if(!s)
 							strcat(Str_Tmp_RW," Size must be specified.");
-						if (!t)
+						if(!t)
 							strcat(Str_Tmp_RW," Type must be specified.");
 						MessageBox(hDlg,Str_Tmp_RW,"ERROR",MB_OK);
 					}
@@ -847,13 +849,13 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 			
 			//-----------------------------------------------------------------------------------
 			//If user has Save Window Pos selected, override default positioning
-			if (RWSaveWindowPos)	
+			if(RWSaveWindowPos)	
 			{
 				//If ramwindow is for some reason completely off screen, use default instead 
-				if (ramw_x > (-width*2) || ramw_x < (width*2 + GetSystemMetrics(SM_CYSCREEN))   ) 
+				if(ramw_x > (-width*2) || ramw_x < (width*2 + GetSystemMetrics(SM_CYSCREEN))   ) 
 					r.left = ramw_x;	  //This also ignores cases of windows -32000 error codes
 				//If ramwindow is for some reason completely off screen, use default instead 
-				if (ramw_y > (0-height*2) ||ramw_y < (height*2 + GetSystemMetrics(SM_CYSCREEN))	)
+				if(ramw_y > (0-height*2) ||ramw_y < (height*2 + GetSystemMetrics(SM_CYSCREEN))	)
 					r.top = ramw_y;		  //This also ignores cases of windows -32000 error codes
 			}
 			//-------------------------------------------------------------------------------------
@@ -866,13 +868,13 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 			const char* names[3] = {"Address","Value","Notes"};
 			int widths[3] = {62,64,64+51+53};
 			init_list_box(GetDlgItem(hDlg,IDC_WATCHLIST),names,3,widths);
-			if (!ResultCount)
+			if(!ResultCount)
 				reset_address_info();
 			else
 				signal_new_frame();
 			ListView_SetItemCount(GetDlgItem(hDlg,IDC_WATCHLIST),WatchCount);
-			if (!noMisalign) SendDlgItemMessage(hDlg, IDC_MISALIGN, BM_SETCHECK, BST_CHECKED, 0);
-			//if (littleEndian) SendDlgItemMessage(hDlg, IDC_ENDIAN, BM_SETCHECK, BST_CHECKED, 0);
+			if(!noMisalign) SendDlgItemMessage(hDlg, IDC_MISALIGN, BM_SETCHECK, BST_CHECKED, 0);
+			//if(littleEndian) SendDlgItemMessage(hDlg, IDC_ENDIAN, BM_SETCHECK, BST_CHECKED, 0);
 
 			RamWatchAccels = LoadAccelerators(hInst, MAKEINTRESOURCE(IDR_ACCELERATOR1));
 
@@ -900,7 +902,7 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 		case WM_NOTIFY:
 		{
 			LPNMHDR lP = (LPNMHDR) lParam;
-			switch (lP->code)
+			switch(lP->code)
 			{
 				case LVN_GETDISPINFO:
 				{
@@ -910,7 +912,7 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 					Item->item.iImage = 0;
 					const unsigned int iNum = Item->item.iItem;
 					static char num[11];
-					switch (Item->item.iSubItem)
+					switch(Item->item.iSubItem)
 					{
 						case 0:
 							sprintf(num,"%08X",rswatches[iNum].Address);
@@ -921,7 +923,7 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 							int t = rswatches[iNum].Type;
 							int size = rswatches[iNum].Size;
 							const char* formatString = ((t=='s') ? "%d" : (t=='u') ? "%u" : (size=='d' ? "%08X" : size=='w' ? "%04X" : "%02X"));
-							switch (size)
+							switch(size)
 							{
 								case 'b':
 								default: sprintf(num, formatString, t=='s' ? (char)(i&0xff) : (unsigned char)(i&0xff)); break;
@@ -1001,7 +1003,7 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 				case IDC_C_WATCH_UP:
 				{
 					watchIndex = ListView_GetSelectionMark(GetDlgItem(hDlg,IDC_WATCHLIST));
-					if (watchIndex == 0 || watchIndex == -1)
+					if(watchIndex == 0 || watchIndex == -1)
 						return true;
 					void *tmp = malloc(sizeof(AddressWatcher));
 					memcpy(tmp,&(rswatches[watchIndex]),sizeof(AddressWatcher));
@@ -1017,7 +1019,7 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 				case IDC_C_WATCH_DOWN:
 				{
 					watchIndex = ListView_GetSelectionMark(GetDlgItem(hDlg,IDC_WATCHLIST));
-					if (watchIndex >= WatchCount - 1 || watchIndex == -1)
+					if(watchIndex >= WatchCount - 1 || watchIndex == -1)
 						return true;
 					void *tmp = malloc(sizeof(AddressWatcher));
 					memcpy(tmp,&(rswatches[watchIndex]),sizeof(AddressWatcher));
@@ -1060,7 +1062,7 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 					EndDialog(hDlg, true);
 					return true;
 				default:
-					if (LOWORD(wParam) >= RW_MENU_FIRST_RECENT_FILE && LOWORD(wParam) < RW_MENU_FIRST_RECENT_FILE+MAX_RECENT_WATCHES)
+					if(LOWORD(wParam) >= RW_MENU_FIRST_RECENT_FILE && LOWORD(wParam) < RW_MENU_FIRST_RECENT_FILE+MAX_RECENT_WATCHES)
 					OpenRWRecentFile(LOWORD(wParam) - RW_MENU_FIRST_RECENT_FILE);
 			}
 			break;
