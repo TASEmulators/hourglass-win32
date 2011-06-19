@@ -8,7 +8,7 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 ||Bunny Must Die||60 FPS||Fullscreen, 60 FPS, Timer||game starts slowly if fullscreen option is off|| ||Tested on XP and 7-x64, videos exist||
 ||[http://www.cavestory.org/info_about.php Cave Story]||50 FPS||Fullscreen, 640x480|| || ||Tested on XP and 7-x64, videos exist||
 ||[http://touhou.wikia.com/wiki/Embodiment_of_Scarlet_Devil Embodiment of Scarlet Devil]||60 FPS, ?||?||?||?||videos exist||
-||[http://zarat.us/tra/offline-games/eversion.html Eversion]||50 FPS, !DirectSound Disabled, Pause Helper Disabled|| ||a little unstable, should manually delete save file|| ||Tested on XP and 7-x64||
+||[http://zarat.us/tra/offline-games/eversion.html Eversion]||50 FPS, Multithreading Disabled, Pause Helper Disabled|| ||a little unstable, should manually delete save file|| ||Tested on XP and 7-x64||
 ||[http://www.remar.se/daniel/herocore.php Hero Core]||40 FPS, Multithreading Disabled|| || || ||Tested on XP||
 ||[http://www.remar.se/daniel/iji.php Iji]||30 FPS, Multithreading Disabled||Fullscreen||gamma ramp effects only display in AVI||capture in slow-motion to avoid audio skipping||Tested on XP||
 ||[http://www.cavestory.org/othergames_ikachan.php Ika-Chan]||50 FPS||Fullscreen, 640x480|| || ||Tested on XP||
