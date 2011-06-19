@@ -28,6 +28,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include <string>
 #include <algorithm>
 #include <aclapi.h>
 
@@ -826,9 +827,31 @@ DWORD CalcFileCrc(const char* path)
 	return rv;
 }
 
+static std::map<std::string, DWORD> crcCache;
+DWORD CalcFileCrcCached(const char* path)
+{
+	std::string key = path;
+	std::map<std::string, DWORD>::iterator found = crcCache.find(key);
+	if(found == crcCache.end())
+	{
+		DWORD rv = CalcFileCrc(path);
+		crcCache.insert(std::make_pair(key, rv));
+		return rv;
+	}
+	else
+	{
+		return found->second;
+	}
+}
+void ClearCrcCache()
+{
+	crcCache.clear();
+}
+
+
 DWORD CalcExeCrc()
 {
-	return CalcFileCrc(exefilename);
+	return CalcFileCrcCached(exefilename);
 }
 
 const char* GetFilenameWithoutPath(const char* path)
@@ -847,6 +870,9 @@ const char* GetExeFilenameWithoutPath()
 #define MAGIC 0x02775466 // "\02wTf"
 static void SaveMovieToFile(const char* filename)
 {
+	bool hadUnsaved = unsaved;
+	unsaved = false;
+
 	if(movie.frames.size() == 0)
 		return;
 
@@ -856,6 +882,7 @@ static void SaveMovieToFile(const char* filename)
 		char str [1024];
 		sprintf(str, "Error: Unable to open \"%s\" for writing.\n", filename);
 		CustomMessageBox(str, "Movie Save Error", MB_OK | MB_ICONERROR);
+		unsaved = hadUnsaved;
 		return;
 
 		//if(!filename || !*filename || strlen(filename) > MAX_PATH-10)
@@ -912,8 +939,6 @@ static void SaveMovieToFile(const char* filename)
 	fwrite(&movie.frames[0], sizeof(MovieFrame), movie.frames.size(), file);
 
 	fclose(file);
-
-	unsaved = false;
 }
 
 // returns 1 on success, 0 on failure, -1 on cancel
@@ -1364,6 +1389,28 @@ void SuggestThreadName(DWORD threadId, HANDLE hProcess)
 }
 
 
+//void debugprintallmemory(const char* msg)
+//{
+//	debugprintf("\n");
+//	MEMORY_BASIC_INFORMATION mbi = {0};
+//	SYSTEM_INFO si = {0};
+//	GetSystemInfo(&si);
+//	// walk process addresses
+//	void* lpMem = si.lpMinimumApplicationAddress;
+//	int totalSize = 0;
+//	while (lpMem < si.lpMaximumApplicationAddress)
+//	{
+//		VirtualQueryEx(hGameProcess,lpMem,&mbi,sizeof(MEMORY_BASIC_INFORMATION));
+//		// increment lpMem to next region of memory
+//		lpMem = (LPVOID)((unsigned char*)mbi.BaseAddress + (DWORD)mbi.RegionSize);
+//
+//		debugprintf(
+//			"%s: BaseAddress=0x%X, AllocationBase=0x%X, AllocationProtect=0x%X, RegionSize=0x%X, State=0x%X, Protect=0x%X, Type=0x%X\n",
+//			msg, mbi.BaseAddress,  mbi.AllocationBase,  mbi.AllocationProtect,  mbi.RegionSize,  mbi.State,  mbi.Protect,  mbi.Type
+//		);
+//	}
+//}
+
 
 void SaveGameStatePhase2(int slot)
 {
@@ -1419,6 +1466,8 @@ void SaveGameStatePhase2(int slot)
 			}
 		}
 	}
+
+//	debugprintallmemory("BEFORESAVE");
 
 	// save all the memory
 	{
@@ -1670,6 +1719,7 @@ static void RecoverStaleState(int slot)
 	}
 }
 
+
 void LoadGameStatePhase2(int slot)
 {
 	AutoCritSect cs(&g_processMemCS);
@@ -1788,6 +1838,8 @@ void LoadGameStatePhase2(int slot)
 			//}
 		}
 
+//		debugprintallmemory("BEFORELOAD");
+
 		// load all the memory (instant brain transplant)
 		{
 			for(unsigned int i = 0; i < state.memory.size(); i++)
@@ -1817,9 +1869,19 @@ void LoadGameStatePhase2(int slot)
 				void* allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.State, mbi.Protect & ~PAGE_GUARD);
 				if(allocAddr != mbi.BaseAddress && mbi.State == MEM_COMMIT && GetLastError() != 0x5)
 					allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, mbi.Protect & ~PAGE_GUARD);
+				//if(allocAddr != mbi.BaseAddress && mbi.State == MEM_COMMIT && GetLastError() != 0x5)
+				//{
+				//	VirtualFreeEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, MEM_DECOMMIT);
+				//	allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, mbi.Protect & ~PAGE_GUARD);
+				//}
+				//if(allocAddr != mbi.BaseAddress && mbi.State == MEM_COMMIT && GetLastError() != 0x5)
+				//{
+				//	VirtualFreeEx(hGameProcess, mbi.AllocationBase, 0, MEM_RELEASE);
+				//	allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, MEM_COMMIT | MEM_RESERVE, mbi.Protect & ~PAGE_GUARD);
+				//}
 	//			void* allocAddr = VirtualAllocEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, (mbi.State == MEM_COMMIT) ? (MEM_COMMIT|MEM_RESERVE) : mbi.State, mbi.Protect);
 				if(allocAddr != mbi.BaseAddress && !(mbi.Type & MEM_IMAGE))
-					debugprintf("FAILED TO COMMIT MEMORY REGION: BaseAddress=0x%08X, RegionSize=0x%X, ResultAddress=0x%X, LastError=0x%X\n", mbi.BaseAddress, mbi.RegionSize, allocAddr, GetLastError());
+					debugprintf("FAILED TO COMMIT MEMORY REGION: BaseAddress=0x%08X, AllocationBase=0x%08X, RegionSize=0x%X, ResultAddress=0x%X, LastError=0x%X\n", mbi.BaseAddress, mbi.AllocationBase, mbi.RegionSize, allocAddr, GetLastError());
 				DWORD dwOldProtect = 0;
 				BOOL protectResult = VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect & ~PAGE_GUARD, &dwOldProtect); 
 				if(!protectResult )//&& !(mbi.Type & MEM_IMAGE))
@@ -1834,6 +1896,8 @@ void LoadGameStatePhase2(int slot)
 					VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect, &dwOldProtect); 
 			}
 		}
+
+//		debugprintallmemory("AFTERLOAD");
 
 		// make sure we didn't accidentally resurrect a command somehow
 		ClearCommand();
@@ -2118,6 +2182,7 @@ void InjectCurrentMovieFrame() // playback ... or recording, now
 		{
 			finished = true;
 			debugprintf("MOVIE END (%d >= %d)\n", movie.currentFrame, (int)movie.frames.size());
+			mainMenuNeedsRebuilding = true;
 			// let's clear the key input when the movie is finished
 			// to prevent potentially weird stuff from holding the last frame's buttons forever
 			unsigned char keys [256] = {0};
@@ -6415,6 +6480,7 @@ doneterminate:
 // debuggerthreadproc
 static DWORD WINAPI DebuggerThreadFunc(LPVOID lpParam) 
 {
+	ClearCrcCache();
 	bool runDllLast = false; // must be before restartgame label
 
 restartgame:
@@ -8802,6 +8868,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					if(IsWindowEnabled(GetDlgItem(hDlg, IDC_BUTTON_PLAY)))
 					{
 				case_IDC_BUTTON_PLAY:
+						WaitForOtherThreadToTerminate(hAfterDebugThreadExitThread, 5000);
 						Save_Config();
 						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_RECORD), false);
 						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_PLAY), false);

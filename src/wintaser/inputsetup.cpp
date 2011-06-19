@@ -2431,7 +2431,7 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	MENU_L(Performance, i++, Flags | ((storeGuardedPagesInSavestates)?MF_CHECKED:MF_UNCHECKED), ID_PERFORMANCE_TOGGLESAVEGUARDED, "", "Store Guarded Memory Pages in Savestates", 0);
 	InsertMenu(Performance, i++, MF_SEPARATOR, NULL, NULL);
 	MENU_L(Performance, i++, Flags | (!started?MF_GRAYED:0), ID_PERFORMANCE_DEALLOCSTATES, "", "Discard All Savestates Now", "must be running");
-	MENU_L(Performance, i++, Flags | (!started?MF_GRAYED:0), ID_PERFORMANCE_DELETESTATES, "", "Delete All Savestates Now", "must be running");
+	MENU_L(Performance, i++, Flags, ID_PERFORMANCE_DELETESTATES, "", "Delete All Savestates Now", 0);
 
 
 	// Debug Log Submenu
