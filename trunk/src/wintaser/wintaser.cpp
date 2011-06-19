@@ -3623,6 +3623,7 @@ bool OpenAVIFile(int width, int height, int bpp, int fps)
 	int oldAviMode = aviMode;
 	int oldAviSplitCount = aviSplitCount;
 	int oldAviSplitDiscardCount = aviSplitDiscardCount;
+	bool oldIsBasicallyEmpty = (aviFrameCount-aviEmptyFrameCount < 5 && aviSoundFrameCount < 15); // before CloseAVI zeroes these values out
 	CloseAVI();
 	aviMode = oldAviMode;
 	aviSplitCount = oldAviSplitCount;
@@ -3654,7 +3655,7 @@ bool OpenAVIFile(int width, int height, int bpp, int fps)
 	}
 	else
 	{
-		if(aviFrameCount-aviEmptyFrameCount < 2 && aviSoundFrameCount < 2)
+		if(oldIsBasicallyEmpty)
 			aviSplitDiscardCount++; // discard empty or almost-empty AVI segments
 
 		static char avifilename2 [MAX_PATH+1];
