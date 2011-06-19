@@ -597,6 +597,8 @@ bool Load_Watches(bool clear, const char* filename)
 		sscanf(Str_Tmp_RW,"%*05X%*c%08X%*c%c%*c%c%*c%d",&(Temp.Address),&(Temp.Size),&(Temp.Type),&(Temp.WrongEndian));
 		Temp.WrongEndian = 0;
 		char *Comment = strrchr(Str_Tmp_RW,DELIM) + 1;
+		if(Comment == (char*)NULL + 1)
+			continue;
 		*strrchr(Comment,'\n') = '\0';
 		InsertWatch(Temp,Comment);
 	}
