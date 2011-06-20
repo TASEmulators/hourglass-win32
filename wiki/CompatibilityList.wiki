@@ -5,21 +5,21 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 
 || *Name* || *Best re-recording settings* || *Best game settings* || *Runtime or recording issues* || *AVI issues* || *Status* ||
 ||[http://distractionware.com/oracle/Games/Aquarium0.1.zip Aquarium]||60 FPS, Multithreading Disabled|| || || ||Tested on XP||
-||Bunny Must Die||60 FPS||Fullscreen, 60 FPS, Timer||game starts slowly if fullscreen option is off|| ||Tested on XP and 7-x64, videos exist||
+||Bunny Must Die||60 FPS||Fullscreen, 60 FPS, Timer||slow splash screen, should manually delete saves|| ||Tested on XP and 7-x64, videos exist||
 ||[http://www.cavestory.org/info_about.php Cave Story]||50 FPS||Fullscreen, 640x480|| || ||Tested on XP and 7-x64, videos exist||
 ||[http://touhou.wikia.com/wiki/Embodiment_of_Scarlet_Devil Embodiment of Scarlet Devil]||60 FPS, ?||?||?||?||videos exist||
 ||[http://zarat.us/tra/offline-games/eversion.html Eversion]||50 FPS, Multithreading Disabled, Pause Helper Disabled|| ||a little unstable, should manually delete save file|| ||Tested on XP and 7-x64||
 ||[http://www.remar.se/daniel/herocore.php Hero Core]||40 FPS, Multithreading Disabled|| || || ||Tested on XP||
-||[http://www.remar.se/daniel/iji.php Iji]||30 FPS, Multithreading Disabled||Fullscreen||gamma ramp effects only display in AVI||capture in slow-motion to avoid audio skipping||Tested on XP||
+||[http://www.remar.se/daniel/iji.php Iji]||30 FPS, Multithreading Disabled||Fullscreen||can take a while to start up, gamma ramp effects only display in AVI||capture in slow-motion to avoid audio skipping||Tested on XP||
 ||[http://www.cavestory.org/othergames_ikachan.php Ika-Chan]||50 FPS||Fullscreen, 640x480|| || ||Tested on XP||
 ||I wanna be the GB||50 FPS, Multithreading Disabled|| ||?|| ||Tested on XP||
 ||[http://kayin.pyoko.org/iwbtg/ I Wanna Be The Guy]||50 FPS, Multithreading Disabled||slomo version||missing text on save select screen, unstable intro|| ||Tested on XP, videos exist||
 ||I wanna be the Love Trap||50 FPS, Multithreading Disabled||?||?||?||videos exist||
 ||[http://agtp.romhack.net/project.php?id=lamulana La-Mulana]||use 60 FPS, Multithreading Disabled, Skip Lag Frames|| || || ||Tested on XP||
-||[http://www.konjak.org/index.php?folder=4&file=11 Legend of Princess]||60 FPS, ?|| ||very unstable, must manually clear config file|| ||Tested on XP||
+||[http://www.konjak.org/index.php?folder=4&file=11 Legend of Princess]||60 FPS, ?|| ||very unstable, must manually delete save file, chance of desync near start of playback|| ||Tested on XP||
 ||[http://www.sitesled.com/members/bogo/lyle.html Lyle in Cube Sector]||50 FPS, Multithreading Disabled, Skip Lag Frames||v1.04||v1.04 runs slightly slow, v1.05 is missing music|| ||Tested on XP, videos exist||
 ||[http://touhou.wikia.com/wiki/MegaMari MegaMari]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP, videos exist||
-||[http://ninjasenki.com/ Ninja Senki]||60 FPS, Multithreading Disabled|| ||unstable intro|| ||Tested on XP, videos exist||
+||[http://ninjasenki.com/ Ninja Senki]||60 FPS, Multithreading Disabled|| ||unstable intro, window activation problems|| ||Tested on XP, videos exist||
 ||[http://touhou.wikia.com/wiki/Perfect_Cherry_Blossom Perfect Cherry Blossom]||60 FPS, Multithreading Disabled|| ||requires 32-bit OS?||capture audio-only in fast-forward to avoid audio skipping||Tested on XP, videos exist||
 ||[http://www.16x16.org/2008/12/05/rescue-the-beagles-final-version-released/ Rescue: The Beagles]||60 FPS, Multithreading Disabled|| || || ||Tested on XP||
 ||[http://rks.wikia.com/wiki/Rosenkreuzstilette Rosenkreuzstilette]||60 FPS, !DirectSound Disabled||?||?||?||videos exist||
@@ -30,4 +30,4 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 ||[http://touhou.wikia.com/wiki/Super_Marisa_World Super Marisa World]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
 ||Syobon Action||?||?||?||?||videos exist||
 ||[http://www.bombergames.net/sorr_project/ Streets of Rage Remake]||60 FPS, Multithreading Disabled|| ||must manually clear save files|| ||Tested on XP||
-||[http://www.asahi-net.or.jp/~cs8k-cyu/windows/tf_e.html Tumiki Fighters]||60 FPS, Multithreading Disabled|| || || ||Tested on XP||
+||[http://www.asahi-net.or.jp/~cs8k-cyu/windows/tf_e.html Tumiki Fighters]||60 FPS, Multithreading Disabled|| ||sometimes need to move window after reactivating it|| ||Tested on XP||
