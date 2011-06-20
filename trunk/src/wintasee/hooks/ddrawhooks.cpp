@@ -46,6 +46,49 @@ static RECT c_bltsaved_buf = {0};
 static DDBLTFX e_bltsaved_buf = {0};
 
 
+void RescaleRect(RECT& rect, RECT from, RECT to);
+void ConfineRect(RECT& rect, RECT bounds)
+{
+	RECT tempRect = rect;
+	if(tempRect.left < bounds.left)
+	{
+		tempRect.right += bounds.left - tempRect.left;
+		tempRect.left = bounds.left;
+		if(tempRect.right > bounds.right)
+			tempRect.right = bounds.right;
+	}
+	else if(tempRect.right > bounds.right)
+	{
+		tempRect.left += bounds.right - tempRect.right;
+		tempRect.right = bounds.right;
+		if(tempRect.left < bounds.left)
+			tempRect.left = bounds.left;
+	}
+	if(tempRect.top < bounds.top)
+	{
+		tempRect.bottom += bounds.top - tempRect.top;
+		tempRect.top = bounds.top;
+		if(tempRect.bottom > bounds.bottom)
+			tempRect.bottom = bounds.bottom;
+	}
+	else if(tempRect.bottom > bounds.bottom)
+	{
+		tempRect.top += bounds.bottom - tempRect.bottom;
+		tempRect.bottom = bounds.bottom;
+		if(tempRect.top < bounds.top)
+			tempRect.top = bounds.top;
+	}
+	rect = tempRect;
+}
+//LPRECT ExpandRect(RECT& rect, RECT other)
+//{
+//	RECT src = rect;
+//	rect.left = min(src.left, other.left);
+//	rect.top = min(src.top, other.top);
+//	rect.right = max(src.right, other.right);
+//	rect.bottom = max(src.bottom, other.bottom);
+//	return &rect;
+//}
 
 
 
@@ -181,7 +224,7 @@ struct MyDirectDrawSurface
 		return rv;
 	}
 
-	static void HandleNewFrame(int xOrigin, int yOrigin, DIRECTDRAWSURFACEN* pThis, DIRECTDRAWSURFACEN* pSource)
+	static void HandleNewFrame(int xOrigin, int yOrigin, DIRECTDRAWSURFACEN* pThis, DIRECTDRAWSURFACEN* pSource, RECT* destRect, RECT* srcRect)
 	{
 		usingSDLOrDD = true;
 
@@ -191,9 +234,16 @@ struct MyDirectDrawSurface
 			// it's a new frame, so do frame boundary calculations
 
 			// first save enough data for RedrawScreen to work when the state is loaded
-			//a_bltsaved = 0;//destRect ? ((a_bltsaved_buf = *destRect), &a_bltsaved_buf) : 0;
+			//static int lastFrameXOrigin=-1, lastFrameYOrigin=-1;
+			//if(lastFrameXOrigin != xOrigin || lastFrameYOrigin != yOrigin)
+			//{
+			//	lastFrameXOrigin = xOrigin;
+			//	lastFrameYOrigin = yOrigin;
+			//	a_bltsaved_buf = *destRect;
+			//}
+			//a_bltsaved = destRect ? ExpandRect(a_bltsaved_buf, *destRect) : 0;
 			b_bltsaved = (LPDIRECTDRAWSURFACE)pSource;
-			//c_bltsaved = 0;//srcRect ? ((c_bltsaved_buf = *srcRect), &c_bltsaved_buf) : 0;
+			//c_bltsaved = srcRect ? ExpandRect(c_bltsaved_buf, *srcRect) : 0;
 			//d_bltsaved = 0;//flags;
 			//e_bltsaved = 0;//bltfx ? ((e_bltsaved_buf = *bltfx), &e_bltsaved_buf) : 0;
 			dds_bltsaved = (LPDIRECTDRAWSURFACE)pThis;
@@ -261,15 +311,34 @@ struct MyDirectDrawSurface
 
 		DDSCAPSN caps;
 		GetCaps(pThis, &caps);
-
 		bool destIsPrimary = (caps.dwCaps & (DDSCAPS_PRIMARYSURFACE|DDSCAPS_FRONTBUFFER)) != 0;
-		RECT idRect;
 
-		if(destIsPrimary)
+		DDSCAPSN caps2;
+		bool srcIsPrimary;
+		if(pSource)
 		{
+			GetCaps(pSource, &caps2);
+			srcIsPrimary = (caps2.dwCaps & (DDSCAPS_PRIMARYSURFACE|DDSCAPS_FRONTBUFFER)) != 0;
+		}
+		else
+		{
+			srcIsPrimary = false;
+		}
+
+		RECT idRect;
+		RECT tempSrcRect;
+		RECT tempDstRect;
+
+		if(srcIsPrimary || destIsPrimary)
+		{
+			// might need to set or override the destination rect to front buffer
+			// could be because we're in force-windowed mode, or because we're preventing the game from knowing where the window really is
+
+			if(destIsPrimary)
 			{
+				// we want idrect to be independent of any adjustments we make to the destrect
 				if(destRect)
-					memcpy(&idRect, destRect, sizeof(RECT));
+					idRect = *destRect;
 				else
 					memset(&idRect, 0, sizeof(RECT));
 				//POINT pt = {0,0};
@@ -277,53 +346,71 @@ struct MyDirectDrawSurface
 				//	OffsetRect(&idRect, pt.x, pt.y);
 			}
 
-			// might need to set or override the destination rect to front buffer
-			// could be because we're in force-windowed mode, or because we're preventing the game from knowing where the window really is
+			RECT realRect;
+			if(GetClientRect(gamehwnd, &realRect) && ClientToScreen(gamehwnd, (LPPOINT)&realRect.left) && ClientToScreen(gamehwnd, (LPPOINT)&realRect.right))
 			{
-				static RECT rect;
-				if(GetClientRect(gamehwnd, &rect) && ClientToScreen(gamehwnd, (LPPOINT)&rect.left) && ClientToScreen(gamehwnd, (LPPOINT)&rect.right))
+				DDSURFACEDESCN ddsdBB = { sizeof(DDSURFACEDESCN) };
+				if(!s_theBackBuffer || FAILED(GetSurfaceDesc((DIRECTDRAWSURFACEN*)s_theBackBuffer, &ddsdBB)))
 				{
-					//debugprintf("AAAA: if(!%d || (%d && %d >= %d && %d >= %d))\n", destRect, fakeDisplayValid, destRect->right-destRect->left, fakeDisplayWidth, destRect->bottom-destRect->top, fakeDisplayHeight);
-					if(!destRect || (fakeDisplayValid && destRect->right-destRect->left >= fakeDisplayWidth && destRect->bottom-destRect->top >= fakeDisplayHeight))
-						destRect = &rect;
+					ddsdBB.dwWidth = fakeDisplayWidth;
+					ddsdBB.dwHeight = fakeDisplayHeight;
+				}
+
+				if(destIsPrimary)
+				{
+					if(!destRect)
+					{
+						// whole screen was target, so fill client
+						destRect = &tempDstRect; // avoid altering original rect, since the game owns it
+						*destRect = realRect;
+					}
+					else if(fakeDisplayValid)
+					{
+						//debugprintf("destRect = %d %d %d %d\n", destRect->left, destRect->top, destRect->right, destRect->bottom);
+
+						// part of screen was target, so rescale to client
+						RECT fakeRect = {0, 0, fakeDisplayWidth, fakeDisplayHeight};
+						tempDstRect = *destRect; destRect = &tempDstRect; // avoid altering original rect, since the game owns it
+						RescaleRect(*destRect, fakeRect, realRect);
+						//ConfineRect(*destRect, realRect); // shouldn't need this
+					}
 					else
 					{
-						// because some games calculate and draw only "dirty regions",
-						// we can't assume any draw to the front buffer fills the whole thing,
-						// so only offset the destination rect as necessary to keep it in the window
-						static RECT rect2;
-						memcpy(&rect2, destRect, sizeof(RECT));
-						destRect = &rect2;
-						if(rect2.left < rect.left)
-						{
-							rect2.right += rect.left - rect2.left;
-							rect2.left = rect.left;
-							if(rect2.right > rect.right)
-								rect2.right = rect.right;
-						}
-						else if(rect2.right > rect.right)
-						{
-							rect2.left += rect.right - rect2.right;
-							rect2.right = rect.right;
-							if(rect2.left < rect.left)
-								rect2.left = rect.left;
-						}
-						if(rect2.top < rect.top)
-						{
-							rect2.bottom += rect.top - rect2.top;
-							rect2.top = rect.top;
-							if(rect2.bottom > rect.bottom)
-								rect2.bottom = rect.bottom;
-						}
-						else if(rect2.bottom > rect.bottom)
-						{
-							rect2.top += rect.bottom - rect2.bottom;
-							rect2.bottom = rect.bottom;
-							if(rect2.top < rect.top)
-								rect2.top = rect.top;
-						}
+						// in this case, we're not currently sure where the game thinks it's rendering to,
+						// so the best we can do is push it into view if the game got it wrong.
+						// here we make the assumption that the game wants to render into somewhere in its own window's client region.
+						tempDstRect = *destRect; destRect = &tempDstRect; // avoid altering original rect, since the game owns it
+						ConfineRect(*destRect, realRect);
 					}
 				}
+
+				if(srcIsPrimary)
+				{
+					if(!srcRect)
+					{
+						// whole screen was source, so fill client
+						srcRect = &tempSrcRect; // avoid altering original rect, since the game owns it
+						*srcRect = realRect;
+					}
+					else if(fakeDisplayValid)
+					{ 
+						// part of screen was source, so rescale to client
+						RECT fakeRect = {0, 0, fakeDisplayWidth, fakeDisplayHeight};
+						tempSrcRect = *srcRect; srcRect = &tempSrcRect; // avoid altering original rect, since the game owns it
+						RescaleRect(*srcRect, fakeRect, realRect);
+					}
+					else
+					{
+						tempSrcRect = *srcRect; srcRect = &tempSrcRect; // avoid altering original rect, since the game owns it
+						ConfineRect(*srcRect, realRect);
+					}
+				}
+
+				// TODO: if destIsPrimary and source is not the corresponding part of the backbuffer,
+				// then this blit won't show up in AVIs.
+				// for example, Nova 3000 does frontbuffer-to-frontbuffer blits
+				// and incomplete-backbuffer-to-frontbuffer blits for screen transitions.
+				// probably need a virtual frontbuffer to support such effects.
 			}
 		}
 
@@ -334,34 +421,16 @@ struct MyDirectDrawSurface
 			rv = DD_OK;
 		else
 		{
-#if 1
-			if(pSource)
-			{
-				DDSCAPSN caps2;
-				GetCaps(pSource, &caps2);
-				if((caps2.dwCaps & (DDSCAPS_PRIMARYSURFACE|DDSCAPS_FRONTBUFFER))) // srcIsPrimary?
-				{
-					if(tasflags.forceWindowed && s_theBackBuffer)
-					{
-						DDSURFACEDESCN ddsdBB = { sizeof(DDSURFACEDESCN) };
-						GetSurfaceDesc((DIRECTDRAWSURFACEN*)s_theBackBuffer, &ddsdBB);
-						RECT bbRect = {0, 0, ddsdBB.dwWidth, ddsdBB.dwHeight };
-						static RECT rect;
-						rect = bbRect;
-						POINT pt = {0,0};
-						if(ClientToScreen(gamehwnd, &pt) && OffsetRect(&rect, pt.x, pt.y))
-						{
-							if(!srcRect || (fakeDisplayValid && srcRect->right-destRect->left >= fakeDisplayWidth && srcRect->bottom-destRect->top >= fakeDisplayHeight))
-							{
-								srcRect = &rect;
-							}
-						}
-					}
-				}
-			}
-#endif
+			//if(srcIsPrimary && srcRect && destRect)
+			//{
+			//	debugprintf("src = %d %d %d %d  0x%X\n", srcRect->left, srcRect->top, srcRect->right, srcRect->bottom, pSource);
+			//	debugprintf("dst = %d %d %d %d  0x%X\n", destRect->left, destRect->top, destRect->right, destRect->bottom, pThis);
+			//}
 
+
+			// do the actual blit
 			rv = Blt(pThis, destRect,pSource,srcRect,flags,bltfx);
+
 
 			if(!destIsPrimary)
 				videoMemoryBackupDirty[pThis] = TRUE;
@@ -369,16 +438,19 @@ struct MyDirectDrawSurface
 				videoMemoryBackupDirty[pSource] = TRUE;
 		}
 
-		if(destIsPrimary && pSource)
+		if(!srcIsPrimary)
 		{
-			if(s_theBackBuffer != pSource)
-				ddrawdebugprintf("s_theBackBuffer: 0x%X -> 0x%X\n", s_theBackBuffer, pSource);
-			s_theBackBuffer = pSource;
-		}
+			if(destIsPrimary && pSource)
+			{
+				if(s_theBackBuffer != pSource)
+					ddrawdebugprintf("s_theBackBuffer: 0x%X -> 0x%X\n", s_theBackBuffer, pSource);
+				s_theBackBuffer = pSource;
+			}
 
-		// if the destination is the front buffer, this is likely a new frame
-		if(destIsPrimary && !redrawingScreen)
-			HandleNewFrame(idRect.left, idRect.top, pThis, pSource);
+			// if the destination is the front buffer, this is likely a new frame
+			if(destIsPrimary && !redrawingScreen)
+				HandleNewFrame(idRect.left, idRect.top, pThis, pSource, destRect, srcRect);
+		}
 
 		return rv;
 	}
@@ -408,7 +480,7 @@ struct MyDirectDrawSurface
 		{
 			if(!destIsPrimary)
 			{
-#if 1
+#if 1			// TODO: I can't remember what game this is for, but the code should be updated if not deleted.
 				if(pSource)
 				{
 					DDSCAPSN caps2;
@@ -471,9 +543,20 @@ struct MyDirectDrawSurface
 
 		//if(destIsPrimary && pSource)
 		//{
-		//	if(s_theBackBuffer != pSource)
-		//		ddrawdebugprintf("s_theBackBuffer: 0x%X -> 0x%X\n", s_theBackBuffer, pSource);
-		//	s_theBackBuffer = pSource;
+		//	DDSCAPSN caps2;
+		//	GetCaps(pSource, &caps2);
+		//	bool srcIsPrimary = (caps2.dwCaps & (DDSCAPS_PRIMARYSURFACE|DDSCAPS_FRONTBUFFER)) != 0;
+		//	if(srcIsPrimary)
+		//	{
+		//		// if the destination and source are both the front buffer, don't treat it as a new frame
+		//		destIsPrimary = false;
+		//	}
+		//	else
+		//	{
+		//		if(s_theBackBuffer != pSource)
+		//			ddrawdebugprintf("s_theBackBuffer: 0x%X -> 0x%X\n", s_theBackBuffer, pSource);
+		//		s_theBackBuffer = pSource;
+		//	}
 		//}
 
 		//// if the destination is the front buffer, this is likely a new frame
@@ -584,7 +667,7 @@ struct MyDirectDrawSurface
 			s_theBackBuffer = pThis;
 
 			if(!redrawingScreen)
-				HandleNewFrame(0, 0, pOther, pThis);
+				HandleNewFrame(0, 0, pOther, pThis, NULL, NULL);
 		}
 		else
 		{
@@ -593,16 +676,7 @@ struct MyDirectDrawSurface
 				GetAttachedFakeBackBuf(pThis, &pOther);
 			}
 
-			LPRECT lpRect = NULL;
-			RECT rect;
-			POINT pt = {0,0};
-			if(GetClientRect(gamehwnd, &rect) && ClientToScreen(gamehwnd, &pt) && OffsetRect(&rect, pt.x, pt.y))
-				lpRect = &rect;
-
-			//if(lpRect)
-			//	debugprintf("%dx%d\n", lpRect->right-lpRect->left, lpRect->bottom-lpRect->top);
-
-			rv = MyBlt(pThis, lpRect, pOther, 0, DDBLT_WAIT, 0);
+			rv = MyBlt(pThis, NULL, pOther, 0, DDBLT_WAIT, 0);
 		}
 
 		return rv;
@@ -690,7 +764,7 @@ struct MyDirectDrawSurface
 			{
 				rv = Unlock(pThis, lockRect);
 				if(VerifyIsTrustedCaller(!tls.callerisuntrusted)) // needed for rescue: the beagles (must avoid setting usingSDLOrDD there, at least the way MySwapBuffers was originally) and could help avoid spurious extra frames in some other games
-					HandleNewFrame(0, 0, pThis, pThis);
+					HandleNewFrame(0, 0, pThis, pThis, (LPRECT)lockRect, (LPRECT)lockRect);
 			}
 			else
 			{
@@ -705,7 +779,7 @@ struct MyDirectDrawSurface
 #endif
 				//cmdprintf("DEBUGPAUSE: 4");
 				if(VerifyIsTrustedCaller(!tls.callerisuntrusted)) // needed for rescue: the beagles (must avoid setting usingSDLOrDD there, at least the way MySwapBuffers was originally) and could help avoid spurious extra frames in some other games
-					HandleNewFrame(0, 0, pThis, pBackbuffer);
+					HandleNewFrame(0, 0, pThis, pBackbuffer, (LPRECT)lockRect, (LPRECT)lockRect);
 			}
 		}
 
@@ -1091,7 +1165,6 @@ public:
 	{
 //		debugprintf(__FUNCTION__ ": m_dd = 0x%X\n", m_dd);
 		ddrawdebugprintf(__FUNCTION__ " called (#%d).\n", ++s_numMyDirectDraws);
-		fakeDisplayValid = FALSE;
 	}
 	~MyDirectDraw()
 	{
@@ -1524,6 +1597,18 @@ public:
 		ddrawdebugprintf(__FUNCTION__ " called.\n");
 
 		ThreadLocalStuff& curtls = tls;
+
+		if(VerifyIsTrustedCaller(!curtls.callerisuntrusted))
+		{
+			if(!a)
+				return DDERR_INVALIDPARAMS;
+			memset(a, 0, sizeof(DDDEVICEIDENTIFIERN));
+			strcpy(a->szDriver, "hourglass_ddraw");
+			strcpy(a->szDescription, "Hourglass DirectDraw Wrapper");
+			a->guidDeviceIdentifier.Data1 = 0x12345432;
+			return DD_OK;
+		}
+
 		const char* oldName = curtls.curThreadCreateName;
 		curtls.curThreadCreateName = "DirectDraw";
 		curtls.callerisuntrusted++;

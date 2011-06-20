@@ -462,9 +462,12 @@ static MessageActionFlags GetMessageActionFlags(UINT message, WPARAM wParam, LPA
 	case WM_SETCURSOR:
 	case WM_NOTIFY:
 	case WM_SHOWWINDOW:
-	case WM_COMMAND:
 	case WM_SYSCOMMAND:
 		break;//return MAF_INTERCEPT | MAF_RETURN_0; // maybe ok to ditch?
+	case WM_COMMAND:
+		if(VerifyIsTrustedCaller(!tls.callerisuntrusted))
+			return MAF_PASSTHROUGH | MAF_RETURN_OS; // hack to fix F2 command in Eternal Daughter
+		break;
 	default:
 		debuglog(LCF_MESSAGES|LCF_FREQUENT|LCF_TODO, "CONSIDER: 0x%X (%s), 0x%X, 0x%X\n", message, GetWindowsMessageName(message), wParam, lParam);
 		//cmdprintf("SHORTTRACE: 3,50");
@@ -636,7 +639,9 @@ HOOKFUNC LRESULT WINAPI MyDefWindowProcW(HWND hWnd, UINT Msg, WPARAM wParam, LPA
 // MyWndProcInternal
 LRESULT DispatchMessageInternal(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam, bool ascii/*=true*/, MessageActionFlags maf/*=MAF_PASSTHROUGH|MAF_RETURN_OS*/)
 {
-	if(/*inPauseHandler || */(tls.callerisuntrusted > (InSendMessage()?1:0))) // if it's the OS or pause handler calling us back,
+	LONG untrusted = tls.callerisuntrusted;
+	//untrusted = VerifyIsTrustedCaller(!untrusted) ? 0 : (untrusted ? untrusted : 1);
+	if(/*inPauseHandler || */(untrusted  > (InSendMessage()?1:0))) // if it's the OS or pause handler calling us back,
 	{                                 // we can't rely on it doing so consistently across systems,
 		if(!(maf & (MAF_INTERCEPT|MAF_BYPASSGAME)))
 		{
@@ -1545,7 +1550,9 @@ HOOKFUNC LRESULT WINAPI MyDispatchMessageA(CONST MSG *lpMsg)
 	//return MyWndProcA(msg.hwnd, msg.message, msg.wParam, msg.lParam);
 	return DispatchMessageInternal(msg.hwnd, msg.message, msg.wParam, msg.lParam, true);
 #else
-	LRESULT rv = DispatchMessageA(lpMsg);
+//	LRESULT rv = DispatchMessageA(lpMsg);
+	const MSG& msg = *lpMsg;
+	LRESULT rv = DispatchMessageInternal(msg.hwnd, msg.message, msg.wParam, msg.lParam, true, MAF_PASSTHROUGH|MAF_RETURN_OS);
 	return rv;
 #endif
 }
@@ -1559,7 +1566,9 @@ HOOKFUNC LRESULT WINAPI MyDispatchMessageW(CONST MSG *lpMsg)
 	//return MyWndProcW(msg.hwnd, msg.message, msg.wParam, msg.lParam);
 	return DispatchMessageInternal(msg.hwnd, msg.message, msg.wParam, msg.lParam, false);
 #else
-	LRESULT rv = DispatchMessageW(lpMsg);
+//	LRESULT rv = DispatchMessageW(lpMsg);
+	const MSG& msg = *lpMsg;
+	LRESULT rv = DispatchMessageInternal(msg.hwnd, msg.message, msg.wParam, msg.lParam, false, MAF_PASSTHROUGH|MAF_RETURN_OS);
 	return rv;
 #endif
 }

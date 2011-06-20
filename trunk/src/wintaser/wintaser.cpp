@@ -2077,7 +2077,7 @@ void SendTASFlags()
 		messageSyncMode,
 		waitSyncMode,
 		aviMode,
-		emuMode | (((recoveringStale||(fastForwardFlags&FFMODE_SOUNDSKIP))&&fastforward) ? EMUMODE_NOPLAYBUFFERS : 0),
+		emuMode | (((recoveringStale||(fastForwardFlags&FFMODE_SOUNDSKIP))&&fastforward) ? EMUMODE_NOPLAYBUFFERS : 0) | ((threadMode==0||threadMode==4||threadMode==5) ? EMUMODE_VIRTUALDIRECTSOUND : 0),
 		forceWindowed,
 		fastforward,
 		forceSurfaceMemory,
@@ -2085,7 +2085,7 @@ void SendTASFlags()
 		audioBitsPerSecond,
 		audioChannels,
 		stateLoaded,
-		fastForwardFlags,// | (recoveringStale ? (FFMODE_FRONTSKIP|FFMODE_BACKSKIP|FFMODE_SOUNDSKIP) ? 0),
+		fastForwardFlags,// | (recoveringStale ? (FFMODE_FRONTSKIP|FFMODE_BACKSKIP) ? 0),
 		initialTime,
 		debugPrintMode,
 		timescale, timescaleDivisor,
@@ -3992,7 +3992,7 @@ void WriteAVIAudio()
 		}
 	}
 
-	if(aviCompressedStream /*&& aviSoundFrameCount < 30*/)
+	if(aviCompressedStream && (aviSoundFrameCount < 30 || aviSoundFrameCount+8 < aviFrameCount))
 		while(aviSoundFrameCount < aviFrameCount/*-aviEmptyFrameCount*/)
 			aviFrameQueue->FillEmptyAudioFrame(); // in case video started before audio
 
@@ -8402,6 +8402,11 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					tasFlagsDirty = true;
 					CheckDialogChanges(-1);
 					break;
+				case ID_EXEC_THREADS_TRUSTED:
+					threadMode = 5;
+					tasFlagsDirty = true;
+					CheckDialogChanges(-1);
+					break;
 
 				case ID_EXEC_TIMERS_DISABLE:
 					timersMode = 0;
@@ -8837,7 +8842,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						//CheckDlgButton(hDlg, IDC_AVIVIDEO, aviMode & 1);
 						//CheckDlgButton(hDlg, IDC_AVIAUDIO, aviMode & 2);
 						bool wasPlayback = playback;
-						TerminateDebuggerThread(6500);
+						TerminateDebuggerThread(12000);
 						if(unsaved)
 							SaveMovieToFile(moviefilename);
 						terminateRequest = false;
@@ -9121,7 +9126,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 								SetWindowText(GetDlgItem(hDlg, IDC_EDIT_EXE), filename);
 								SendMessage(GetDlgItem(hDlg, IDC_EDIT_EXE), EM_SETSEL, -2, -1);
 							}
-							else if(!stricmp(dot, ".wtf")) // windows TAS file (input movie)
+							else if(!_strnicmp(dot, ".wtf", 4)) // windows TAS file (input movie)
 							{
 								SetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
 								SendMessage(GetDlgItem(hDlg, IDC_EDIT_MOVIE), EM_SETSEL, -2, -1);
