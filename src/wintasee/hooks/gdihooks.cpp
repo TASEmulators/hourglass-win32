@@ -133,6 +133,34 @@ static void FrameBoundaryHDCtoAVI(HDC hdc,int xSrc,int ySrc,int xRes,int yRes)
 #endif
 }
 
+static const int gdiFrameBigEnoughWidth = 120;
+static const int gdiFrameBigEnoughHeight = 80;
+static bool HDCSizeBigEnoughForFrameBoundary(HDC hdc)
+{
+#ifdef UNSELECT_BEFORE_HDC_CAPTURE
+	// the docs say: "The bitmap identified by the hbmp parameter must not be selected into a device context when the application calls this function."
+	HBITMAP bitmap = (HBITMAP)SelectObject(hdc, CreateCompatibleBitmap(hdc, 1, 1));
+#else
+	// but this appears to work fine and it's probably at least a little bit faster, so...
+	HBITMAP bitmap = (HBITMAP)GetCurrentObject(hdc, OBJ_BITMAP);
+#endif
+
+	BITMAPINFO bmi = {sizeof(BITMAPINFOHEADER)};
+	GetDIBits(hdc, bitmap, 0, 0, 0, &bmi, DIB_RGB_COLORS);
+
+	int width = bmi.bmiHeader.biWidth;
+	int height = bmi.bmiHeader.biHeight;
+	if(height < 0) height = -height;
+
+	bool bigEnough = (width >= gdiFrameBigEnoughWidth && height >= gdiFrameBigEnoughHeight);
+
+#ifdef UNSELECT_BEFORE_HDC_CAPTURE
+	DeleteObject(SelectObject(hdc, bitmap));
+#endif
+
+	return bigEnough;
+}
+
 
 
 int depth_SwapBuffers = 0;
@@ -164,6 +192,20 @@ HOOKFUNC BOOL MySwapBuffers(HDC hdc)
 }
 
 
+
+
+void RescaleRect(RECT& rect, RECT from, RECT to)
+{
+	rect.left   = ((rect.left   - from.left) * (to.right - to.left)) / (from.right - from.left) + to.left;
+	rect.top    = ((rect.top    - from.top)  * (to.bottom - to.top)) / (from.bottom - from.top) + to.top;
+	rect.right  = ((rect.right  - from.left) * (to.right - to.left)) / (from.right - from.left) + to.left;
+	rect.bottom = ((rect.bottom - from.top)  * (to.bottom - to.top)) / (from.bottom - from.top) + to.top;
+}
+
+
+
+
+
 static HDC s_hdcSrcSaved;
 static HDC s_hdcDstSaved;
 static bool s_gdiPendingRefresh;
@@ -190,7 +232,11 @@ HOOKFUNC BOOL WINAPI MyStretchBlt(
 				if((/*s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(nXOriginDest,nYOriginDest))
 					||*/ tls.peekedMessage) && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 				{
-					isFrameBoundary = true;
+					if((nWidthSrc >= gdiFrameBigEnoughWidth && nHeightSrc >= gdiFrameBigEnoughHeight)
+					|| HDCSizeBigEnoughForFrameBoundary(hdcSrc))
+					{
+						isFrameBoundary = true;
+					}
 				}
 			}
 		}
@@ -245,7 +291,11 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 				if((/*s_gdiPhaseDetector.AdvanceAndCheckCycleBoundary(MAKELONG(nXDest,nYDest))
 					||*/ tls.peekedMessage) && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 				{
-					isFrameBoundary = true;
+					if((nWidth >= gdiFrameBigEnoughWidth && nHeight >= gdiFrameBigEnoughHeight)
+					|| HDCSizeBigEnoughForFrameBoundary(hdcSrc))
+					{
+						isFrameBoundary = true;
+					}
 				}
 			}
 		}
@@ -271,29 +321,27 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 		else
 		{
 			HWND hwnd = WindowFromDC(hdcDest);
-			RECT rect;
-			if(!GetClientRect(hwnd, &rect) || (rect.right == fakeDisplayWidth && rect.bottom == fakeDisplayHeight))
+			RECT realRect;
+			if(!GetClientRect(hwnd, &realRect) || (realRect.right == fakeDisplayWidth && realRect.bottom == fakeDisplayHeight))
 			{
 				rv = BitBlt(hdcDest,nXDest,nYDest,nWidth,nHeight,hdcSrc,nXSrc,nYSrc,dwRop);
 			}
 			else
 			{
 				// support resized fake-fullscreen windows in games like Lyle in Cube Sector
+				// a little iffy: sprites leave pixels behind occasionally at non-integral scales
 				HDC hdcTemp = 0;
 				HDC hdc = hdcDest;
-				if(rect.right > fakeDisplayWidth || rect.bottom > fakeDisplayHeight)
+				if(realRect.right > fakeDisplayWidth || realRect.bottom > fakeDisplayHeight)
 				{
 					// sidestep clip region (it can't be expanded without switching HDCs)
 					hdcTemp = GetDC(hwnd);
 					hdc = hdcTemp;
 				}
-				// iffy, sprites leave pixels behind occasionally at non-integral scales
-				int x0 = (nXDest * rect.right) / fakeDisplayWidth;
-				int y0 = (nYDest * rect.bottom) / fakeDisplayHeight;
-				int x1 = ((nXDest+nWidth) * rect.right) / fakeDisplayWidth;
-				int y1 = ((nYDest+nHeight) * rect.bottom) / fakeDisplayHeight;
-				//debugprintf("%dx%d -> %dx%d ... (%d,%d,%d,%d) -> (%d,%d,%d,%d)\n", fakeDisplayWidth, fakeDisplayHeight, rect.right, rect.bottom,  nXDest,nYDest,nXDest+nWidth,nYDest+nHeight, x0,y0,x1,y1);
-				rv = StretchBlt(hdc,x0,y0,x1-x0,y1-y0,hdcSrc,nXSrc,nYSrc,nWidth,nHeight,dwRop);
+				RECT dstRect = {nXDest, nYDest, nXDest+nWidth, nYDest+nHeight};
+				RECT fakeRect = {0, 0, fakeDisplayWidth, fakeDisplayHeight};
+				RescaleRect(dstRect, fakeRect, realRect);
+				rv = StretchBlt(hdc, dstRect.left,dstRect.top,dstRect.right-dstRect.left,dstRect.bottom-dstRect.top, hdcSrc, nXSrc,nYSrc,nWidth,nHeight, dwRop);
 				if(hdcTemp)
 					ReleaseDC(hwnd, hdcTemp);
 			}

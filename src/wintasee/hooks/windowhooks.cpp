@@ -469,7 +469,10 @@ HOOKFUNC BOOL WINAPI MyShowWindow(HWND hWnd, int nCmdShow)
 
 HOOKFUNC BOOL WINAPI MyGetClientRect(HWND hWnd, LPRECT lpRect)
 {
-	if(fakeDisplayValid && IsWindowFakeFullscreen(hWnd))
+	// IsWindowFakeFullscreen checks disabled because they let window position info leak to Eternal Daughter and possibly others (maybe need to use ::IsChild inside IsWindowFakeFullscreen)
+	// VerifyIsTrustedCaller checks added as a hack so that DirectDrawClipper can still get the real window coordinates
+	// TODO: instead of calling VerifyIsTrustedCaller we could probably have MyDirectDrawSurface::MyBlt set a flag for us. although maybe this way is safer.
+	if(fakeDisplayValid/* && IsWindowFakeFullscreen(hWnd)*/ && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 	{
 		if(!lpRect)
 			return FALSE;
@@ -477,12 +480,14 @@ HOOKFUNC BOOL WINAPI MyGetClientRect(HWND hWnd, LPRECT lpRect)
 		lpRect->top = 0;
 		lpRect->right = fakeDisplayWidth;
 		lpRect->bottom = fakeDisplayHeight;
+		return TRUE;
 	}
 	return GetClientRect(hWnd, lpRect);
 }
 HOOKFUNC BOOL WINAPI MyGetWindowRect(HWND hWnd, LPRECT lpRect)
 {
-	if(fakeDisplayValid && IsWindowFakeFullscreen(hWnd))
+	// see coments in MyGetClientRect
+	if(fakeDisplayValid/* && IsWindowFakeFullscreen(hWnd)*/ && VerifyIsTrustedCaller(!tls.callerisuntrusted))
 	{
 		if(!lpRect)
 			return FALSE;
@@ -490,8 +495,28 @@ HOOKFUNC BOOL WINAPI MyGetWindowRect(HWND hWnd, LPRECT lpRect)
 		lpRect->top = 0;
 		lpRect->right = fakeDisplayWidth;
 		lpRect->bottom = fakeDisplayHeight;
+		return TRUE;
 	}
 	return GetWindowRect(hWnd, lpRect);
+}
+
+HOOKFUNC BOOL WINAPI MyClientToScreen(HWND hWnd, LPPOINT lpPoint)
+{
+	// see coments in MyGetClientRect
+	if(fakeDisplayValid/* && IsWindowFakeFullscreen(hWnd)*/ && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+	{
+		return (lpPoint != NULL);
+	}
+	return ClientToScreen(hWnd, lpPoint);
+}
+HOOKFUNC BOOL WINAPI MyScreenToClient(HWND hWnd, LPPOINT lpPoint)
+{
+	// see coments in MyGetClientRect
+	if(fakeDisplayValid/* && IsWindowFakeFullscreen(hWnd)*/ && VerifyIsTrustedCaller(!tls.callerisuntrusted))
+	{
+		return (lpPoint != NULL);
+	}
+	return ScreenToClient(hWnd, lpPoint);
 }
 
 HOOKFUNC BOOL WINAPI MySetWindowTextA(HWND hWnd, LPCSTR lpString)
@@ -620,6 +645,8 @@ void ApplyWindowIntercepts()
 		MAKE_INTERCEPT(1, USER32, ShowWindow),
 		MAKE_INTERCEPT(1, USER32, GetClientRect),
 		MAKE_INTERCEPT(1, USER32, GetWindowRect),
+		MAKE_INTERCEPT(1, USER32, ClientToScreen),
+		MAKE_INTERCEPT(1, USER32, ScreenToClient),
 		MAKE_INTERCEPT(1, USER32, SetWindowTextA),
 		MAKE_INTERCEPT(1, USER32, SetWindowTextW),
 		//MAKE_INTERCEPT(1, USER32, InvalidateRect),

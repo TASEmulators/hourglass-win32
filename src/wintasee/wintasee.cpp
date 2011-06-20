@@ -1205,7 +1205,8 @@ void FrameBoundary(void* captureInfo, int captureInfoType)
 #ifdef EMULATE_MESSAGE_QUEUES
 					PostMessageInternal(hwnd, WM_KEYDOWN, i, 0);
 #else
-					SendMessage(hwnd, toggleWhitelistMessage(WM_KEYDOWN), i, 0);
+					//SendMessage(hwnd, toggleWhitelistMessage(WM_KEYDOWN), i, 0);
+					MyWndProcA(hwnd, toggleWhitelistMessage(WM_KEYDOWN), i, 0);
 #endif
 
 					// also send a WM_CHAR event in case some games need it (HACK, should do this in TranslateMessage)
@@ -1219,7 +1220,8 @@ void FrameBoundary(void* captureInfo, int captureInfoType)
 #ifdef EMULATE_MESSAGE_QUEUES
 						PostMessageInternal(hwnd, WM_CHAR, c, 0);
 #else
-						SendMessage(hwnd, toggleWhitelistMessage(WM_CHAR), c, 0);
+						//SendMessage(hwnd, toggleWhitelistMessage(WM_CHAR), c, 0);
+						MyWndProcA(hwnd, toggleWhitelistMessage(WM_CHAR), c, 0);
 #endif
 					}
 				}
@@ -1229,7 +1231,8 @@ void FrameBoundary(void* captureInfo, int captureInfoType)
 #ifdef EMULATE_MESSAGE_QUEUES
 					PostMessageInternal(hwnd, WM_KEYUP, i, 0);
 #else
-					SendMessage(hwnd, toggleWhitelistMessage(WM_KEYUP), i, 0);
+					//SendMessage(hwnd, toggleWhitelistMessage(WM_KEYUP), i, 0);
+					MyWndProcA(hwnd, toggleWhitelistMessage(WM_KEYUP), i, 0);
 #endif
 				}
 			}

@@ -2397,6 +2397,8 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	MENU_L(ExecMultithreading, i++, Flags | ((threadMode == 2)?MF_CHECKED:MF_UNCHECKED) | (usedThreadMode==1?MF_GRAYED:0), ID_EXEC_THREADS_ALLOW, "", "&Allow (normal thread creation)", "can't set while running after wrapped threads created");
 	MENU_L(ExecMultithreading, i++, Flags | ((threadMode == 3)?MF_CHECKED:MF_UNCHECKED) | (usedThreadMode==1?MF_GRAYED:0), ID_EXEC_THREADS_KNOWN, "", "Allow &known threads only", "can't set while running after wrapped threads created");
 	MENU_L(ExecMultithreading, i++, Flags | ((threadMode == 4)?MF_CHECKED:MF_UNCHECKED) | (usedThreadMode==1?MF_GRAYED:0), ID_EXEC_THREADS_UNKNOWN, "", "Allow &unknown threads only", "can't set while running after wrapped threads created");
+	MENU_L(ExecMultithreading, i++, Flags | ((threadMode == 5)?MF_CHECKED:MF_UNCHECKED) | (usedThreadMode==1?MF_GRAYED:0), ID_EXEC_THREADS_TRUSTED, "", "Allow &trusted threads only", "can't set while running after wrapped threads created");
+	
 
 	// Timers Submenu
 	i = 0;

@@ -138,12 +138,12 @@ HOOKFUNC HANDLE WINAPI MyCreateThread(
 	debuglog(LCF_THREAD, __FUNCTION__"(0x%X) called, tls.curThreadCreateName = %s\n", (DWORD)lpStartAddress, tls.curThreadCreateName);
 	//cmdprintf("SHORTTRACE: 3,50");
 
-	if(tasflags.threadMode == 0 || tasflags.threadMode == 3 && !tls.curThreadCreateName || tasflags.threadMode == 4 && tls.curThreadCreateName)
+	if(tasflags.threadMode == 0 || tasflags.threadMode == 3 && !tls.curThreadCreateName || tasflags.threadMode == 4 && tls.curThreadCreateName || (tasflags.threadMode == 5 && !VerifyIsTrustedCaller(!tls.callerisuntrusted)))
 	{
-		debuglog(LCF_THREAD, __FUNCTION__": thread creation denied.\n");
-		cmdprintf("DENIEDTHREAD: %Iu", lpStartAddress);
-
 		const char* threadTypeName = tls.curThreadCreateName;
+
+		debuglog(LCF_THREAD, __FUNCTION__": thread creation denied. \"%s\"\n", threadTypeName?threadTypeName:"unknown_thread");
+		cmdprintf("DENIEDTHREAD: %Iu", lpStartAddress);
 
 		// FIXME: it's a terrible hack to choose between these two methods depending on whether we have a thread name,
 		// but it gets herocore working with threads disabled, and I can't think of a better solution at the moment.
