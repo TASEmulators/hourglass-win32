@@ -711,6 +711,7 @@ static int requestedAviSplitCount = 0;
 static int windowActivateFlags = 0;
 int storeVideoMemoryInSavestates = 1;
 int storeGuardedPagesInSavestates = 1;
+int appLocale = 0;
 int forceWindowed = 1;
 int truePause = 0;
 int onlyHookChildProcesses = 0;
@@ -2091,6 +2092,7 @@ void SendTASFlags()
 		timescale, timescaleDivisor,
 		allowLoadInstalledDlls, allowLoadUxtheme,
 		storeVideoMemoryInSavestates,
+		appLocale,
 		includeLogFlags|traceLogFlags,
 		excludeLogFlags,
 	};
@@ -6223,6 +6225,7 @@ void RegisterModuleInfo(LPVOID hModule, HANDLE hProcess, const char* path)
 			if((DWORD)mmi.mi.lpBaseOfDll >= (DWORD)mmi2.mi.lpBaseOfDll
 			&& (DWORD)mmi.mi.lpBaseOfDll+mmi.mi.SizeOfImage <= (DWORD)mmi2.mi.lpBaseOfDll+mmi2.mi.SizeOfImage)
 			{
+				debugprintf("apparently already TRUSTED MODULE 0x%08X - 0x%08X (%s)\n", mmi.mi.lpBaseOfDll, (DWORD)mmi.mi.lpBaseOfDll+mmi.mi.SizeOfImage, path);
 				return;
 			}
 		}
@@ -8462,6 +8465,14 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					allowLoadUxtheme = !allowLoadUxtheme;
 					tasFlagsDirty = true;
 					break;
+
+
+				case ID_EXEC_LOCALE_SYSTEM: appLocale = 0; tasFlagsDirty = true; break;
+				case ID_EXEC_LOCALE_JAPANESE: appLocale = 1041; tasFlagsDirty = true; break;
+				case ID_EXEC_LOCALE_CHINESE: appLocale = 2052; tasFlagsDirty = true; break;
+				case ID_EXEC_LOCALE_KOREAN: appLocale = 1042; tasFlagsDirty = true; break;
+				case ID_EXEC_LOCALE_ENGLISH: appLocale = 1033; tasFlagsDirty = true; break;
+
 
 				case ID_INPUT_SKIPLAGFRAMES:
 					advancePastNonVideoFrames = !advancePastNonVideoFrames;

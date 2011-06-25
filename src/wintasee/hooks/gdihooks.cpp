@@ -14,6 +14,7 @@
 #include "../phasedetection.h"
 //static PhaseDetector s_gdiPhaseDetector;
 
+#include "../locale.h"
 
 
 // TODO: declare these in headers like openglhooks.h?
@@ -338,6 +339,8 @@ HOOKFUNC BOOL WINAPI MyBitBlt(
 					hdcTemp = GetDC(hwnd);
 					hdc = hdcTemp;
 				}
+				// FIXME this feature actually broke, it's drawing at 100% size again no matter the window size,
+				// it probably broke because of extra hooking of functions like GetClientRect.
 				RECT dstRect = {nXDest, nYDest, nXDest+nWidth, nYDest+nHeight};
 				RECT fakeRect = {0, 0, fakeDisplayWidth, fakeDisplayHeight};
 				RescaleRect(dstRect, fakeRect, realRect);
@@ -506,17 +509,49 @@ HOOKFUNC int WINAPI MyGetDeviceCaps(HDC hdc, int index)
 	return rv;
 }
 
+//int CALLBACK EnumFontProc(const LOGFONTA* lplf, const TEXTMETRICA* tma, DWORD FontType, LPARAM lParam)
+//{
+//	debugprintf(__FUNCTION__ " called (charset=%d, lfFaceName=%s).\n", lplf->lfCharSet, lplf->lfFaceName);
+//	return 1;
+//}
+//int CALLBACK EnumFontProcW(const LOGFONTW* lplf, const TEXTMETRICW* tma, DWORD FontType, LPARAM lParam)
+//{
+//	debugprintf(__FUNCTION__ " called (charset=%d, lfFaceName=%S).\n", lplf->lfCharSet, lplf->lfFaceName);
+//	return 1;
+//}
+
+
 HOOKFUNC HFONT WINAPI MyCreateFontIndirectA(CONST LOGFONTA *lplf)
 {
-	debuglog(LCF_GDI, __FUNCTION__ " called (quality=%d).\n", lplf->lfQuality);
+	debuglog(LCF_GDI, __FUNCTION__ " called (quality=%d, charset=%d, lfFaceName=%s).\n", lplf->lfQuality, lplf->lfCharSet, lplf->lfFaceName);
+
 	if(lplf->lfQuality != NONANTIALIASED_QUALITY)
 		((LOGFONTA*)lplf)->lfQuality = ANTIALIASED_QUALITY; // disable ClearType so it doesn't get into AVIs
-	HFONT rv = CreateFontIndirectA(lplf);
+
+	HFONT rv;
+	if(tasflags.appLocale
+	&& lplf->lfCharSet == LocaleToCharset(tasflags.appLocale)
+		/*&& lplf->lfCharSet != LocaleToCharset(GetACP())*/)
+	{
+		// since windows 2000, the CreateFont functions can recognize either the localized or unlocalized font name.
+		// but, they still can't recognize the localized font name in the incorrect codepage.
+		str_to_wstr(wstr, lplf->lfFaceName, LocaleToCodePage(tasflags.appLocale));
+
+		LOGFONTW fontw;
+		memcpy(&fontw, lplf, (int)&fontw.lfFaceName - (int)&fontw);
+		wcscpy(fontw.lfFaceName, wstr);
+		rv = CreateFontIndirectW(&fontw);
+	}
+	else
+	{
+		rv = CreateFontIndirectA(lplf);
+	}
+
 	return rv;
 }
 HOOKFUNC HFONT WINAPI MyCreateFontIndirectW(CONST LOGFONTW *lplf)
 {
-	debuglog(LCF_GDI, __FUNCTION__ " called (quality=%d).\n", lplf->lfQuality);
+	debuglog(LCF_GDI, __FUNCTION__ " called (quality=%d, charset=%d, lfFaceName=%S).\n", lplf->lfQuality, lplf->lfCharSet, lplf->lfFaceName);
 	if(lplf->lfQuality != NONANTIALIASED_QUALITY)
 		((LOGFONTW*)lplf)->lfQuality = ANTIALIASED_QUALITY; // disable ClearType so it doesn't get into AVIs
 	HFONT rv = CreateFontIndirectW(lplf);

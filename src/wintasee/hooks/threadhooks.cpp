@@ -86,6 +86,11 @@ std::map<HANDLE,DWORD> threadWrappersOriginalHandleToId;
 
 DWORD WINAPI MyThreadWrapperThread(LPVOID lpParam)
 {
+	if(tasflags.appLocale)
+	{
+		SetThreadLocale(tasflags.appLocale);
+		SetThreadUILanguage(tasflags.appLocale);
+	}
 	debuglog(LCF_THREAD, __FUNCTION__ " called.\n");
 	DWORD threadId = GetCurrentThreadId();
 	ThreadWrapperInfo& info = *(ThreadWrapperInfo*)lpParam;

@@ -78,6 +78,7 @@
 #include "intercept.h"
 #include "tls.h"
 #include "msgqueue.h"
+#include "locale.h"
 #include "wintasee.h"
 
 #include <map>
@@ -1525,6 +1526,7 @@ void HookCOMInterface(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew)
 //	//MAKE_INTERCEPT(1, MSVCRT, srand),
 //};
 
+//typedef UINT (WINAPI *SetCPGlobalType)(UINT acp);
 
 DWORD WINAPI PostDllMain(LPVOID lpParam)
 {
@@ -1536,8 +1538,16 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 	ThreadLocalStuff& curtls = tls;
 	curtls.callerisuntrusted++;
 	curtls.treatDLLLoadsAsClient++;
+
 	// moved from DllMain since it was causing a loader lock problem
 	LoadKeyboardLayout(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
+
+	if(tasflags.appLocale)
+	{
+		SetThreadLocale(tasflags.appLocale);
+		SetThreadUILanguage(tasflags.appLocale);
+	}
+
 	curtls.treatDLLLoadsAsClient--;
 	curtls.callerisuntrusted--;
 
@@ -1609,15 +1619,6 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		cmdprintf("EXTHWNDBUF: %Iu", &extHWnd);
 
 
-		// tell it which keyboard layout is active,
-		// let it replace it with one stored in a movie if it wants,
-		// then load the possibly-new keyboard layout
-		GetKeyboardLayoutNameA(keyboardLayoutName);
-		cmdprintf("KEYBLAYOUT: %Iu", keyboardLayoutName);
-	// moved to PostDllMain since it was causing a loader lock problem
-		//LoadKeyboardLayout(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
-
-
 		//cmdprintf("GETDLLLIST: %Iu", dllLeaveAloneList);
 
 		//SetPriorityClass(hCurrentProcess, HIGH_PRIORITY_CLASS);
@@ -1659,6 +1660,26 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		UpdateLoadedOrUnloadedDllHooks();
 
 		notramps = false;
+
+		// tell it which keyboard layout is active,
+		// let it replace it with one stored in a movie if it wants,
+		// then load the possibly-new keyboard layout
+		GetKeyboardLayoutNameA(keyboardLayoutName);
+		cmdprintf("KEYBLAYOUT: %Iu", keyboardLayoutName);
+		// moved to PostDllMain since it was causing a loader lock problem
+		//LoadKeyboardLayout(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
+
+		if(tasflags.appLocale)
+		{
+			SetConsoleCP(LocaleToCodePage(tasflags.appLocale));
+			SetConsoleOutputCP(LocaleToCodePage(tasflags.appLocale));
+			SetThreadLocale(tasflags.appLocale);
+			SetThreadUILanguage(tasflags.appLocale);
+			// disabled because it breaks fonts in pcb, undocumented anyway
+			//if(HMODULE kernel32 = LoadLibrary("kernel32.dll"))
+			//	if(SetCPGlobalType SetCPGlobal = (SetCPGlobalType)GetProcAddress(kernel32, "SetCPGlobal"))
+			//		SetCPGlobal(LocaleToCodePage(tasflags.appLocale));
+		}
 
 		detTimer.Initialize(tasflags.initialTime);
 		nonDetTimer.Initialize(tasflags.initialTime);

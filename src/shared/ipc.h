@@ -32,6 +32,7 @@ struct TasFlags
 	int timescale, timescaleDivisor;
 	int allowLoadInstalledDlls, allowLoadUxtheme;
 	int storeVideoMemoryInSavestates;
+	int appLocale;
 	LogCategoryFlag includeLogFlags;
 	LogCategoryFlag excludeLogFlags;
 #ifdef _USRDLL

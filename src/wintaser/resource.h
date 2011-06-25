@@ -330,6 +330,11 @@
 #define ID_EXEC_WAITSYNC_ASYNC          40397
 #define ID_EXEC_DLLS_INSTALLED          40400
 #define ID_EXEC_DLLS_UXTHEME            40401
+#define ID_EXEC_LOCALE_SYSTEM           40410
+#define ID_EXEC_LOCALE_ENGLISH          40411
+#define ID_EXEC_LOCALE_JAPANESE         40412
+#define ID_EXEC_LOCALE_CHINESE          40413
+#define ID_EXEC_LOCALE_KOREAN           40414
 #define ID_RAM_SEARCH                   40522
 #define ID_RAM_WATCH                    40523
 #define ID_TIME_RATE_100                40550
