@@ -58,6 +58,46 @@ struct IDirect3DTexture9_CustomData
 static std::map<IDirect3DTexture9*, IDirect3DTexture9_CustomData> texture9data;
 
 
+static void ProcessPresentationParams9(D3DPRESENT_PARAMETERS* pPresentationParameters, IDirect3D9* d3d, IDirect3DDevice9* d3dDevice)
+{
+	if(pPresentationParameters) // presentparams
+	{
+		pPresentationParameters->Flags |= D3DPRESENTFLAG_LOCKABLE_BACKBUFFER; // back buffer must be lockable, to allow for AVI recording
+		if(tasflags.forceWindowed && !pPresentationParameters->Windowed)
+		{
+			pPresentationParameters->Windowed = TRUE;
+			pPresentationParameters->FullScreen_RefreshRateInHz = 0;
+			
+			fakeDisplayWidth = pPresentationParameters->BackBufferWidth;
+			fakeDisplayHeight = pPresentationParameters->BackBufferHeight;
+			fakePixelFormatBPP = (pPresentationParameters->BackBufferFormat == D3DFMT_R5G6B5 || pPresentationParameters->BackBufferFormat == D3DFMT_X1R5G5B5 || pPresentationParameters->BackBufferFormat == D3DFMT_A1R5G5B5) ? 16 : 32;
+			fakeDisplayValid = TRUE;
+			FakeBroadcastDisplayChange(fakeDisplayWidth,fakeDisplayHeight,fakePixelFormatBPP);
+			if(gamehwnd)
+				MakeWindowWindowed(gamehwnd, fakeDisplayWidth, fakeDisplayHeight);
+
+			D3DDISPLAYMODE display_mode;
+			if(d3d)
+				d3dDevice = NULL;
+			if(!d3d && d3dDevice)
+				d3dDevice->GetDirect3D(&d3d);
+
+			if(SUCCEEDED(d3d->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &display_mode)))
+				pPresentationParameters->BackBufferFormat = display_mode.Format;
+
+			if(d3d && d3dDevice)
+				d3d->Release();
+
+			pPresentationParameters->BackBufferCount = 1;
+		}
+		else if(!tasflags.forceWindowed && !pPresentationParameters->Windowed)
+		{
+			FakeBroadcastDisplayChange(pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, (pPresentationParameters->BackBufferFormat == D3DFMT_R5G6B5 || pPresentationParameters->BackBufferFormat == D3DFMT_X1R5G5B5 || pPresentationParameters->BackBufferFormat == D3DFMT_A1R5G5B5) ? 16 : 32);
+		}
+	}
+}
+
+
 struct MyDirect3DDevice9
 {
 	static BOOL Hook(IDirect3DDevice9* obj)
@@ -117,8 +157,7 @@ struct MyDirect3DDevice9
 	static HRESULT STDMETHODCALLTYPE MyReset(IDirect3DDevice9* pThis, D3DPRESENT_PARAMETERS* pPresentationParameters)
 	{
 		d3ddebugprintf(__FUNCTION__ " called.\n");
-		if(pPresentationParameters)
-			pPresentationParameters->Flags |= D3DPRESENTFLAG_LOCKABLE_BACKBUFFER; // back buffer must be lockable, to allow for AVI recording
+		ProcessPresentationParams9(pPresentationParameters, NULL, pThis);
 		d3d9BackBufActive = true;
 		d3d9BackBufDirty = true;
 		HRESULT rv = Reset(pThis, pPresentationParameters);
@@ -232,8 +271,7 @@ struct MyDirect3DDevice9
 	static HRESULT STDMETHODCALLTYPE MyCreateAdditionalSwapChain(IDirect3DDevice9* pThis, D3DPRESENT_PARAMETERS* pPresentationParameters,IDirect3DSwapChain9** pSwapChain)
 	{
 		d3ddebugprintf(__FUNCTION__ " called.\n");
-		if(pPresentationParameters)
-			pPresentationParameters->Flags |= D3DPRESENTFLAG_LOCKABLE_BACKBUFFER; // back buffer must be lockable, to allow for AVI recording
+		ProcessPresentationParams9(pPresentationParameters, NULL, pThis);
 		HRESULT rv = CreateAdditionalSwapChain(pThis, pPresentationParameters, pSwapChain);
 		if(SUCCEEDED(rv))
 			HookCOMInterface(IID_IDirect3DSwapChain9, (LPVOID*)pSwapChain);
@@ -942,39 +980,14 @@ struct MyDirect3D9
 	static HRESULT STDMETHODCALLTYPE MyCreateDevice(IDirect3D9* pThis, UINT Adapter,D3DDEVTYPE DeviceType,HWND hFocusWindow,DWORD BehaviorFlags,D3DPRESENT_PARAMETERS* pPresentationParameters,IDirect3DDevice9** ppReturnedDeviceInterface)
 	{
 		d3ddebugprintf(__FUNCTION__ " called.\n");
-		//BOOL wasWindowed;
-		if(pPresentationParameters) // presentparams
-		{
-			pPresentationParameters->Flags |= D3DPRESENTFLAG_LOCKABLE_BACKBUFFER; // back buffer must be lockable, to allow for AVI recording
-			if(tasflags.forceWindowed && !pPresentationParameters->Windowed)
-			{
-				pPresentationParameters->Windowed = TRUE;
-				pPresentationParameters->FullScreen_RefreshRateInHz = 0;
-				
-				fakeDisplayWidth = pPresentationParameters->BackBufferWidth;
-				fakeDisplayHeight = pPresentationParameters->BackBufferHeight;
-				fakePixelFormatBPP = (pPresentationParameters->BackBufferFormat == D3DFMT_R5G6B5 || pPresentationParameters->BackBufferFormat == D3DFMT_X1R5G5B5 || pPresentationParameters->BackBufferFormat == D3DFMT_A1R5G5B5) ? 16 : 32;
-				fakeDisplayValid = TRUE;
-				FakeBroadcastDisplayChange(fakeDisplayWidth,fakeDisplayHeight,fakePixelFormatBPP);
-				if(gamehwnd)
-					MakeWindowWindowed(gamehwnd, fakeDisplayWidth, fakeDisplayHeight);
-
-				D3DDISPLAYMODE display_mode;
-				if(SUCCEEDED(pThis->GetAdapterDisplayMode(D3DADAPTER_DEFAULT, &display_mode)))
-				{
-					pPresentationParameters->BackBufferFormat = display_mode.Format;
-				}
-				pPresentationParameters->BackBufferCount = 1;
-			}
-			else if(!tasflags.forceWindowed && !pPresentationParameters->Windowed)
-			{
-				FakeBroadcastDisplayChange(pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, (pPresentationParameters->BackBufferFormat == D3DFMT_R5G6B5 || pPresentationParameters->BackBufferFormat == D3DFMT_X1R5G5B5 || pPresentationParameters->BackBufferFormat == D3DFMT_A1R5G5B5) ? 16 : 32);
-			}
-		}
+		ProcessPresentationParams9(pPresentationParameters, pThis, NULL);
 		HRESULT rv = CreateDevice(pThis, Adapter,DeviceType,hFocusWindow,BehaviorFlags,pPresentationParameters,ppReturnedDeviceInterface);
 		if(SUCCEEDED(rv))
 			HookCOMInterface(IID_IDirect3DDevice9, (LPVOID*)ppReturnedDeviceInterface);
-		s_savedD3D9DefaultHWND = hFocusWindow;
+		if(pPresentationParameters && pPresentationParameters->hDeviceWindow && IsWindow(pPresentationParameters->hDeviceWindow))
+			s_savedD3D9DefaultHWND = pPresentationParameters->hDeviceWindow;
+		else
+			s_savedD3D9DefaultHWND = hFocusWindow;
 		return rv;
 	}
 };
