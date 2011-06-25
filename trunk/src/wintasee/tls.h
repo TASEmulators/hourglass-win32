@@ -23,6 +23,7 @@ struct ThreadLocalStuff
 	LONG destroyWindowDepth;
 	BOOL callingClientLoadLibrary;
 	LONG treatDLLLoadsAsClient; // hack until callingClientLoadLibrary can be set in a more os-independent way
+	LONG forceLocale;
 #ifdef EMULATE_MESSAGE_QUEUES
 	MessageQueue messageQueue;
 #endif
@@ -86,6 +87,7 @@ private:
 		destroyWindowDepth = 0;
 		callingClientLoadLibrary = FALSE;
 		treatDLLLoadsAsClient = 0;
+		forceLocale = 0;
 		curThreadCreateName = NULL;
 #ifdef EMULATE_MESSAGE_QUEUES
 		messageQueue.queueStatus = /*QS_NONE*/0;

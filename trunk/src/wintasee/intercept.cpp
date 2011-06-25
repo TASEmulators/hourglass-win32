@@ -34,10 +34,12 @@ BOOL InterceptGlobalFunction(FARPROC dwAddressToIntercept, FARPROC dwReplaced, F
 	}
 	if(*pbTrampoline == 0xe9)
 	{
-		debugprintf("rejump detected in trampoline (0x%X), attempting to remove...\n", pbTrampoline);
-		int diff = *(DWORD*)(pbTrampoline+1) + 5;
-		pbTrampoline += diff;
-		dwTrampoline = (FARPROC)pbTrampoline;
+		//debugprintf("rejump detected in trampoline (0x%X), attempting to remove...\n", pbTrampoline);
+		//int diff = *(DWORD*)(pbTrampoline+1) + 5;
+		//pbTrampoline += diff;
+		//dwTrampoline = (FARPROC)pbTrampoline;
+		debugprintf("rejump detected in trampoline (0x%X), so someone else overwrote our code. giving up.\n", pbTrampoline);
+		return rvOnSkip;
 	}
 
 	if(pbTargetCode == pbReplaced)

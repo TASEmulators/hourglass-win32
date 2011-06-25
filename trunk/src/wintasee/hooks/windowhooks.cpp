@@ -9,6 +9,7 @@
 #include "../tls.h"
 #include "../wintasee.h"
 #include "../msgqueue.h"
+#include "../locale.h"
 #include <map>
 
 static int createWindowDepth = 0;
@@ -51,6 +52,10 @@ HOOKFUNC HWND WINAPI MyCreateWindowExA(DWORD dwExStyle, LPCSTR lpClassName,
 	HWND hwnd = CreateWindowExA(dwExStyle, lpClassName,
 		lpWindowName, dwStyle, X, Y, nWidth, nHeight,
 		hWndParent, hMenu, hInstance, lpParam);
+
+	HOOKFUNC BOOL WINAPI MySetWindowTextA(HWND hWnd, LPCSTR lpString);
+	MySetWindowTextA(hwnd, lpWindowName);
+
 	curtls.treatDLLLoadsAsClient--;
 	curtls.callerisuntrusted--;
 	debuglog(LCF_WINDOW, __FUNCTION__ " made hwnd = 0x%X.\n", hwnd);
@@ -519,9 +524,18 @@ HOOKFUNC BOOL WINAPI MyScreenToClient(HWND hWnd, LPPOINT lpPoint)
 	return ScreenToClient(hWnd, lpPoint);
 }
 
+HOOKFUNC BOOL WINAPI MySetWindowTextW(HWND hWnd, LPCWSTR lpString);
+
 HOOKFUNC BOOL WINAPI MySetWindowTextA(HWND hWnd, LPCSTR lpString)
 {
 	debuglog(LCF_WINDOW, __FUNCTION__ "(0x%X, \"%s\") called.\n", hWnd, lpString);
+	if(tasflags.appLocale)
+	{
+		str_to_wstr(wstr, lpString, LocaleToCodePage(tasflags.appLocale));
+		BOOL rv = MySetWindowTextW(hWnd, wstr);
+		DispatchMessageInternal(hWnd, WM_SETTEXT, 0, (LPARAM)wstr, false, MAF_BYPASSGAME|MAF_RETURN_OS);
+		return rv;
+	}
 	BOOL rv = SetWindowTextA(hWnd, lpString);
 	DispatchMessageInternal(hWnd, WM_SETTEXT, 0, (LPARAM)lpString, true, MAF_BYPASSGAME|MAF_RETURN_OS);
 	return rv;

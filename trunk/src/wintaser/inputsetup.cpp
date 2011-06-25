@@ -1890,6 +1890,7 @@ extern int aviSoundFrameCount;
 extern bool traceEnabled;
 extern int storeVideoMemoryInSavestates;
 extern int storeGuardedPagesInSavestates;
+extern int appLocale;
 extern int debugPrintMode;
 extern LogCategoryFlag includeLogFlags;
 extern LogCategoryFlag traceLogFlags;
@@ -2167,6 +2168,7 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	HMENU ExecMessageSync = CreatePopupMenu();
 	HMENU ExecWaitSync = CreatePopupMenu();
 	HMENU ExecDlls = CreatePopupMenu();
+	HMENU Locale = CreatePopupMenu();
 	HMENU DebugLogging = CreatePopupMenu();
 	HMENU DebugLoggingInclude = CreatePopupMenu();
 	HMENU DebugLoggingTrace = CreatePopupMenu();
@@ -2321,6 +2323,8 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 
 	// Execution Menu
 	i = 0;
+	MENU_L(Exec, i++, Flags | MF_POPUP, (UINT)Locale, "", "App &Locale", 0);
+	InsertMenu(Exec, i++, MF_SEPARATOR, NULL, NULL);
 	MENU_L(Exec, i++, Flags | MF_POPUP, (UINT)ExecMultithreading, "", "&Multithreading Mode", 0);
 	MENU_L(Exec, i++, Flags | MF_POPUP, (UINT)ExecTimers, "", "Multimedia &Timer Mode", 0);
 	MENU_L(Exec, i++, Flags | MF_POPUP, (UINT)ExecMessageSync, "", "Message &Sync Mode", 0);	
@@ -2423,7 +2427,14 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	i = 0;
 	MENU_L(ExecDlls, i++, Flags | ((allowLoadInstalledDlls)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_INSTALLED, "", "Allow loading any custom/installed DLLs", 0);
 	MENU_L(ExecDlls, i++, Flags | ((allowLoadUxtheme)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_UXTHEME, "", "Allow loading uxtheme.dll (for non-classic window styles)", 0);
-	//int allowLoadInstalledDlls, allowLoadUxtheme;
+
+	// Locale Submenu	
+	i = 0;
+	MENU_L(Locale, i++, Flags | ((appLocale==0)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_LOCALE_SYSTEM, "", "Use system locale", 0);
+	MENU_L(Locale, i++, Flags | ((appLocale==1041)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_JAPANESE, "", "Force &Japanese locale", "can't enable while running");	
+	MENU_L(Locale, i++, Flags | ((appLocale==2052)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_CHINESE, "", "Force &Chinese (Simplified) locale", "can't enable while running");	
+	MENU_L(Locale, i++, Flags | ((appLocale==1042)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_KOREAN, "", "Force &Korean locale", "can't enable while running");	
+	MENU_L(Locale, i++, Flags | ((appLocale==1033)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_ENGLISH, "", "Force &English locale", "can't enable while running");
 
 	// Performance Submenu
 	i = 0;
