@@ -529,98 +529,65 @@ private:
 
 #define BUFSIZE 512
 
-BOOL GetFileNameFromHandle(HANDLE hFile, TCHAR* pszFilename) 
+static bool TranslateDeviceName(TCHAR* pszFilename)
 {
-	BOOL bSuccess = FALSE;
-	HANDLE hFileMap;
+	// Translate path with device name to drive letters.
+	TCHAR szTemp[BUFSIZE];
+	szTemp[0] = '\0';
 
-	// Get the file size.
-	DWORD dwFileSizeHi = 0;
-	DWORD dwFileSizeLo = GetFileSize(hFile, &dwFileSizeHi); 
-
-	if( dwFileSizeLo == 0 && dwFileSizeHi == 0 )
+	if(GetLogicalDriveStrings(BUFSIZE-1, szTemp)) 
 	{
-		printf("Cannot map a file with a length of zero.\n");
-		return FALSE;
-	}
+		TCHAR szName[MAX_PATH];
+		TCHAR szDrive[3] = TEXT(" :");
+		BOOL bFound = FALSE;
+		TCHAR* p = szTemp;
 
-	// Create a file mapping object.
-	hFileMap = CreateFileMapping(hFile, 
-		NULL, 
-		PAGE_READONLY,
-		0, 
-		1,
-		NULL);
-
-	if (hFileMap) 
-	{
-		// Create a file mapping to get the file name.
-		void* pMem = MapViewOfFile(hFileMap, FILE_MAP_READ, 0, 0, 1);
-
-		if (pMem) 
-		{
-			if (GetMappedFileName (GetCurrentProcess(), 
-				pMem, 
-				pszFilename,
-				MAX_PATH)) 
+		do {
+			*szDrive = *p;
+			if(QueryDosDevice(szDrive, szName, MAX_PATH))
 			{
-
-				// Translate path with device name to drive letters.
-				TCHAR szTemp[BUFSIZE];
-				szTemp[0] = '\0';
-
-				if (GetLogicalDriveStrings(BUFSIZE-1, szTemp)) 
+				UINT uNameLen = (UINT)_tcslen(szName);
+				if(uNameLen < MAX_PATH) 
 				{
-					TCHAR szName[MAX_PATH];
-					TCHAR szDrive[3] = TEXT(" :");
-					BOOL bFound = FALSE;
-					TCHAR* p = szTemp;
-
-					do 
+					bFound = !_tcsnicmp(pszFilename, szName, uNameLen);
+					if(bFound) 
 					{
-						// Copy the drive letter to the template string
-						*szDrive = *p;
-
-						// Look up each device name
-						if (QueryDosDevice(szDrive, szName, MAX_PATH))
-						{
-							UINT uNameLen = (UINT)_tcslen(szName);
-
-							if (uNameLen < MAX_PATH) 
-							{
-								bFound = _tcsnicmp(pszFilename, szName, 
-									uNameLen) == 0;
-
-								if (bFound) 
-								{
-									// Reconstruct pszFilename using szTempFile
-									// Replace device path with DOS path
-									TCHAR szTempFile[MAX_PATH];
-									StringCchPrintf(szTempFile,
-										MAX_PATH,
-										TEXT("%s%s"),
-										szDrive,
-										pszFilename+uNameLen);
-									StringCchCopyN(pszFilename, MAX_PATH+1, szTempFile, _tcslen(szTempFile));
-								}
-							}
-						}
-
-						// Go to the next NULL character.
-						while (*p++);
-					} while (!bFound && *p); // end of string
-					bSuccess = TRUE;
+						TCHAR szTempFile[MAX_PATH];
+						StringCchPrintf(szTempFile, MAX_PATH, TEXT("%s%s"), szDrive, pszFilename+uNameLen);
+						StringCchCopyN(pszFilename, MAX_PATH+1, szTempFile, _tcslen(szTempFile));
+					}
 				}
 			}
-			UnmapViewOfFile(pMem);
-		} 
+			while(*p++);
+		} while(!bFound && *p);
+		return true;
+	}
+	return false;
+}
 
+bool GetFileNameFromProcessHandle(HANDLE hProcess, char* filename)
+{
+	if(GetProcessImageFileNameA(hProcess, filename, MAX_PATH))
+		return TranslateDeviceName(filename);
+	return false;
+}
+
+bool GetFileNameFromFileHandle(HANDLE hFile, TCHAR* pszFilename) 
+{
+	bool bSuccess = false;
+	if(HANDLE hFileMap = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 1, NULL)) 
+	{
+		if(void* pMem = MapViewOfFile(hFileMap, FILE_MAP_READ, 0, 0, 1))
+		{
+			if(GetMappedFileName(GetCurrentProcess(), pMem, pszFilename, MAX_PATH)) 
+				bSuccess = TranslateDeviceName(pszFilename);
+			UnmapViewOfFile(pMem);
+		}
 		CloseHandle(hFileMap);
 	}
-	//debugprintf(TEXT("File name is %s\n"), pszFilename);
 	if(!bSuccess)
 		strcpy(pszFilename, "(unknown)");
-	return(bSuccess);
+	return bSuccess;
 }
 
 
@@ -4188,7 +4155,7 @@ static char dllLeaveAloneList [256][MAX_PATH+1];
 //	std::map<LPVOID,HANDLE>::iterator iter; 
 //	for(iter = dllBaseToHandle.begin(); iter != dllBaseToHandle.end(); iter++)
 //	{
-//		GetFileNameFromHandle(iter->second, filename);
+//		GetFileNameFromFileHandle(iter->second, filename);
 //		const char* pfilename = strrchr(filename, '\\') + 1;
 //		if(pfilename == (const char*)1)
 //			pfilename = filename;
@@ -6542,7 +6509,7 @@ restartgame:
 		// doesn't work?
 	//{
 	//	char procfilename [MAX_PATH+1];
-	//	if(GetFileNameFromHandle(hGameProcess, procfilename))
+	//	if(GetFileNameFromFileHandle(hGameProcess, procfilename))
 	//		debugprintf("created process from file \"%s\"\n", procfilename);
 	//	else
 	//		debugprintf("ERROR: unable to get process filename.\n");
@@ -7171,7 +7138,7 @@ restartgame:
 					if(dllBaseToFilename[de.u.LoadDll.lpBaseOfDll].length() == 0)
 					{
 						char filename [MAX_PATH+1];
-						GetFileNameFromHandle(de.u.LoadDll.hFile, filename);
+						GetFileNameFromFileHandle(de.u.LoadDll.hFile, filename);
 						debugprintf("LOADED DLL: %s\n", filename);
 						HANDLE hProcess = GetProcessHandle(processInfo,de);
 						RegisterModuleInfo(de.u.LoadDll.lpBaseOfDll, hProcess, filename);
@@ -7207,7 +7174,7 @@ restartgame:
 				{
 					//char filename [MAX_PATH+1];
 					//HANDLE hFile = dllBaseToHandle[de.u.UnloadDll.lpBaseOfDll];
-					//GetFileNameFromHandle(hFile, filename);
+					//GetFileNameFromFileHandle(hFile, filename);
 					const char* filename = dllBaseToFilename[de.u.UnloadDll.lpBaseOfDll].c_str();
 					debugprintf("UNLOADED DLL: %s\n", filename);
 					HANDLE hProcess = GetProcessHandle(processInfo,de);
@@ -7275,7 +7242,11 @@ restartgame:
 			case CREATE_PROCESS_DEBUG_EVENT:
 				{
 					char filename [MAX_PATH+1];
-					GetFileNameFromHandle(de.u.CreateProcessInfo.hFile, filename);
+
+					// hFile is NULL sometimes...
+					if(!GetFileNameFromProcessHandle(de.u.CreateProcessInfo.hProcess, filename))
+						GetFileNameFromFileHandle(de.u.CreateProcessInfo.hFile, filename);
+
 //					debugprintf("CREATE_PROCESS_DEBUG_EVENT: 0x%X\n", de.u.CreateProcessInfo.lpBaseOfImage);
 					debugprintf("CREATED PROCESS: %s\n", filename);
 					strcpy(subexefilename, filename);
@@ -7292,6 +7263,10 @@ restartgame:
 //							s_lastThreadSwitchedTo = de.dwThreadId;
 ////						SuspendThread(de.u.CreateProcessInfo.hThread);
 //					}
+
+					bool nullFile = !de.u.CreateProcessInfo.hFile;
+					if(nullFile)
+						de.u.CreateProcessInfo.hFile = CreateFile(filename, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 					if(de.dwProcessId == processInfo.dwProcessId)
 					{
@@ -7324,6 +7299,14 @@ restartgame:
 						InjectDll(processInfo.hProcess, processInfo.dwProcessId, processInfo.hThread, processInfo.dwThreadId, dllpath, runDllLast);
 						debugprintf("done injection. continuing...\n");
 					}
+
+					if(nullFile && de.u.CreateProcessInfo.hFile)
+					{
+						if(de.u.CreateProcessInfo.hFile != INVALID_HANDLE_VALUE)
+							CloseHandle(de.u.CreateProcessInfo.hFile);
+						de.u.CreateProcessInfo.hFile = NULL;
+					}
+
 				}
 				CloseHandle(de.u.CreateProcessInfo.hFile);
 				break;		
