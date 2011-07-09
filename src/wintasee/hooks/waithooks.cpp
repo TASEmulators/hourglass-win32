@@ -192,7 +192,9 @@ HOOKFUNC DWORD WINAPI MyWaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds
 		else if(tasflags.threadMode == 0)
 		{
 			// for megamari with multithreading disabled
-			return WaitForSingleObject(hHandle, 0);
+			DWORD rv = WaitForSingleObject(hHandle, 0);
+			rv = WAIT_OBJECT_0; // "might crash", but that's better than "probably desync"
+			return rv;
 		}
 		else
 		{
@@ -204,7 +206,7 @@ HOOKFUNC DWORD WINAPI MyWaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds
 				if(tasflags.fastForward && (tasflags.fastForwardFlags & FFMODE_WAITSKIP) && dwMilliseconds)
 					dwMilliseconds = 1;
 				DWORD rv = WaitForSingleObject(hHandle, dwMilliseconds);
-				if(rv == WAIT_TIMEOUT)
+				//if(rv == WAIT_TIMEOUT)
 				{
 					rv = WAIT_OBJECT_0; // "might crash", but that's better than "probably desync"
 				}
@@ -227,8 +229,8 @@ HOOKFUNC DWORD WINAPI MyWaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds
 			{
 				if(maxWaitTime)
 					debuglog(LCF_WAIT|LCF_DESYNC|LCF_ERROR, __FUNCTION__": interrupted wait for 0x%X in case of deadlock.", hHandle);
-				rv = WAIT_OBJECT_0; // "might crash", but that's better than "probably desync"
 			}
+			rv = WAIT_OBJECT_0; // "might crash", but that's better than "probably desync"
 			return rv;
 		}
 
