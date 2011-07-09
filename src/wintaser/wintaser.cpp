@@ -619,6 +619,7 @@ struct Movie
 	int currentFrame;
 	int rerecordCount;
 	char keyboardLayoutName [KL_NAMELENGTH]; // "00000409" for standard US layout
+	int desyncDetectionTimerValues [16];
 	// note: these aren't the only things in the movie file format.
 	// see SaveMovieToFile or LoadMovieFromFile for the rest.
 	Movie() : currentFrame(0), rerecordCount(0)
@@ -900,6 +901,8 @@ static void SaveMovieToFile(const char* filename)
 	fwrite(exefname, 1, min(exefnamelen,48-1), file);
 	for(int i = min(exefnamelen,48-1); i < 48; i++) fputc(0, file);
 
+	fwrite(&movie.desyncDetectionTimerValues[0], 16, 4, file);
+
 	// write remaining padding before movie data
 	while(ftell(file) < 1024)
 		fputc(0, file);
@@ -946,6 +949,8 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 	char exefname [48]; *exefname = 0;
 	fread(exefname, 1, 48, file);
 	exefname[48-1] = 0;
+
+	fread(&movie.desyncDetectionTimerValues[0], 16, 4, file);
 
 	bool failed = false;
 	if(length > 0 && magic == MAGIC)
@@ -4055,6 +4060,8 @@ static void HandleAviSplitRequests()
 	}
 }
 
+void DoPow2Logic(int frameCount);
+
 void SleepFrameBoundary(const char* frameInfo, int threadId)
 {
 	HandleAviSplitRequests();
@@ -4140,7 +4147,44 @@ void FrameBoundary(const char* frameInfo, int threadId)
  		if(!playback)
 			RecordLocalInputs();
 		InjectCurrentMovieFrame();
+		if(!(frameCount & (frameCount-1)))
+			DoPow2Logic(frameCount);
 	}
+}
+
+static int s_firstTimerDesyncWarnedFrame = 0x7FFFFFFF;
+
+void DoPow2Logic(int frameCount)
+{
+	int which = 0;
+	while((1 << which) < frameCount && which < 16) {
+		which++;
+	}
+	if(which < 16 && !finished)
+	{
+		if(remoteGeneralInfoFromDll)
+		{
+			InfoForDebugger localGeneralInfoFromDll;
+			SIZE_T bytesRead = 0;
+			if(ReadProcessMemory(hGameProcess, remoteGeneralInfoFromDll, &localGeneralInfoFromDll, sizeof(InfoForDebugger), &bytesRead))
+			{
+				int movieTime = movie.desyncDetectionTimerValues[which];
+				if(movieTime != localGeneralInfoFromDll.ticks)
+				{
+					if(playback && movieTime && s_firstTimerDesyncWarnedFrame >= frameCount)
+					{
+						s_firstTimerDesyncWarnedFrame = frameCount;
+						char str [256];
+						sprintf(str, "DESYNC DETECTED: on frame %d, your timer = %d but movie's timer = %d.\nThat means this playback of the movie desynced somewhere between frames %d and %d.", frameCount, localGeneralInfoFromDll.ticks, movieTime, frameCount, frameCount>>1);
+						debugprintf("%s\n", str);
+						CustomMessageBox(str, "Desync Warning", MB_OK | MB_ICONWARNING);
+					}
+					movie.desyncDetectionTimerValues[which] = localGeneralInfoFromDll.ticks;
+				}
+			}
+		}
+	}
+
 }
 
 static char dllLeaveAloneList [256][MAX_PATH+1];
@@ -6544,6 +6588,8 @@ restartgame:
 
 	for(int i = 0; i < maxNumSavestates; i++)
 		savestates[i].stale = savestates[i].valid;
+
+	s_firstTimerDesyncWarnedFrame = 0x7FFFFFFF;
 
 	g_gammaRampEnabled = false;
 	dllLoadInfos.numInfos = 0;
