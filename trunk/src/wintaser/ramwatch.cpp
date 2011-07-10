@@ -652,6 +652,15 @@ void RemoveWatch(int watchIndex)
 	WatchCount--;
 }
 
+void RemoveWatch(const AddressWatcher &watch) {
+	for (int i = 0; i < WatchCount; i++) {
+		if (IsSameWatch(rswatches[i],watch)) {
+			RemoveWatch(i);
+			break;
+		}
+	}
+}
+
 LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) //Gets info for a RAM Watch, and then inserts it into the Watch List
 {
 	RECT r;

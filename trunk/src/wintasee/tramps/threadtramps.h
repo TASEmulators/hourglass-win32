@@ -21,5 +21,4 @@ TRAMPFUNC BOOL WINAPI TerminateThread(HANDLE hThread, DWORD dwExitCode) TRAMPOLI
 TRAMPFUNC BOOL WINAPI GetExitCodeThread(HANDLE hThread, LPDWORD lpExitCode) TRAMPOLINE_DEF
 #define NtSetInformationThread TrampNtSetInformationThread
 TRAMPFUNC NTSTATUS NTAPI NtSetInformationThread(HANDLE ThreadHandle, DWORD ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength) TRAMPOLINE_DEF
-
 #endif

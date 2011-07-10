@@ -9,6 +9,7 @@
 #include "../../shared/winutil.h"
 #include "../tls.h"
 #include "../wintasee.h"
+#include <map>
 
 bool TrySoundCoCreateInstance(REFIID riid, LPVOID *ppv);
 
@@ -805,6 +806,50 @@ HOOKFUNC VOID WINAPI MyExitProcess(DWORD dwExitCode)
 //	//return rv;
 //}
 
+struct _tiddata {
+    unsigned long   _tid;       /* thread ID */
+    uintptr_t _thandle;         /* thread handle */
+    int     _terrno;            /* errno value */
+    unsigned long   _tdoserrno; /* _doserrno value */
+    unsigned int    _fpds;      /* Floating Point data segment */
+    unsigned long   _holdrand;  /* rand() seed value */
+	//There's more than this in a full _tiddata struct, but this is probably everything we're interested in
+};
+
+typedef struct _tiddata * _ptiddata;
+BOOL FlsRecursing = FALSE;
+std::map<DWORD,DWORD *> fseeds;
+HOOKFUNC BOOL WINAPI MyFlsSetValue(DWORD dwFlsIndex, LPVOID lpFlsData) {
+	BOOL rv = FlsSetValue(dwFlsIndex,lpFlsData);
+	if ((!FlsRecursing) && (lpFlsData != NULL)) {
+		FlsRecursing = TRUE;
+		if (fseeds.find(dwFlsIndex) == fseeds.end()) {
+			_ptiddata ptd = (_ptiddata)FlsGetValue(dwFlsIndex);
+			debugprintf("FlsSetValue(%d,lpFlsData), set _tiddata structure at %08X",dwFlsIndex,ptd);
+			cmdprintf("WATCH: %08X,d,u,AutoRandSeed_Fiber_%d",&(ptd->_holdrand),dwFlsIndex);
+			fseeds[dwFlsIndex] = &(ptd->_holdrand);
+		}
+		FlsRecursing = FALSE;
+	}
+	return rv;
+}
+BOOL TlsRecursing = FALSE;
+std::map<DWORD,DWORD *> tseeds;
+HOOKFUNC BOOL WINAPI MyTlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) {
+	BOOL rv = TlsSetValue(dwTlsIndex, lpTlsValue);
+	if ((!TlsRecursing) && (lpTlsValue != NULL)) {
+		TlsRecursing = TRUE;
+		if (tseeds.find(dwTlsIndex) == tseeds.end()) {
+			_ptiddata ptd = (_ptiddata)TlsGetValue(dwTlsIndex);
+			debugprintf("FlsSetValue(%d,lpFlsData), set _tiddata structure at %08X",dwTlsIndex,ptd);
+			cmdprintf("WATCH: %08X,d,u,AutoRandSeed_Thread_%d",&(ptd->_holdrand),dwTlsIndex);
+			tseeds[dwTlsIndex] = &(ptd->_holdrand);
+		}
+		TlsRecursing = FALSE;
+	}
+	return rv;
+}
+
 void ModuleDllMainInit()
 {
 	InitializeCriticalSection(&s_dllLoadAndRetryInterceptCS);
@@ -825,6 +870,9 @@ void ApplyModuleIntercepts()
 		MAKE_INTERCEPT(1, OLE32, CoGetClassObject),
 		MAKE_INTERCEPT3(1, QUARTZ.DLL, DllGetClassObject, quartz), // this is mainly so we can hook the IReferenceClock used by DirectShow
 		MAKE_INTERCEPT(1, RPCRT4, IUnknown_QueryInterface_Proxy), // not sure if this is needed for anything
+
+		MAKE_INTERCEPT(1, KERNEL32, FlsSetValue),
+		MAKE_INTERCEPT(1, KERNEL32, TlsSetValue),
 
 		MAKE_INTERCEPT(1, KERNEL32, ExitProcess),
 		MAKE_INTERCEPT(1, KERNEL32, CreateProcessA),
