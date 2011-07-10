@@ -1537,7 +1537,7 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 
 	ThreadLocalStuff& curtls = tls;
 	curtls.callerisuntrusted++;
-	curtls.treatDLLLoadsAsClient++;
+	//curtls.treatDLLLoadsAsClient++;
 
 	// moved from DllMain since it was causing a loader lock problem
 	LoadKeyboardLayout(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
@@ -1548,7 +1548,7 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 		SetThreadUILanguage(tasflags.appLocale);
 	}
 
-	curtls.treatDLLLoadsAsClient--;
+	//curtls.treatDLLLoadsAsClient--;
 	curtls.callerisuntrusted--;
 
 	tls.isFirstThread = true;
