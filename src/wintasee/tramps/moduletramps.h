@@ -128,4 +128,8 @@ TRAMPFUNC VOID WINAPI ExitProcess(DWORD dwExitCode) TRAMPOLINE_DEF_VOID
 //TRAMPFUNC HRESULT STDAPICALLTYPE TrampDllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv) TRAMPOLINE_DEF
 
 
+#define TlsSetValue TrampTlsSetValue
+TRAMPFUNC BOOL WINAPI TlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) TRAMPOLINE_DEF
+#define FlsSetValue TrampFlsSetValue
+TRAMPFUNC BOOL WINAPI FlsSetValue(DWORD dwFlsIndex, LPVOID lpFlsData) TRAMPOLINE_DEF
 #endif

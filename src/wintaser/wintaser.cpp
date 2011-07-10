@@ -49,7 +49,7 @@
 #include "../shared/ipc.h"
 #include "../shared/asm.h"
 #include "../shared/winutil.h"
-
+#include "ramwatch.h"
 
 
 #pragma warning(disable:4995)
@@ -6765,6 +6765,21 @@ restartgame:
 							ReceiveFrameRate(pstr);
 						else if(MessagePrefixMatch("HWND"))
 							ReceiveHWND(atoi(pstr));
+						else if(MessagePrefixMatch("WATCH")) 
+						{
+							AddressWatcher auto_watch;
+							char comment[256];
+							sscanf(pstr,"%08X,%c,%c,%s",&(auto_watch.Address),&(auto_watch.Size),&(auto_watch.Type),comment);
+							auto_watch.WrongEndian=false;
+							InsertWatch(auto_watch,comment);							
+						}
+						else if(MessagePrefixMatch("UNWATCH")) 
+						{
+							AddressWatcher auto_unwatch;
+							sscanf(pstr,"%08X, %c, %c",&(auto_unwatch.Address),&(auto_unwatch.Size),&(auto_unwatch.Type));
+							auto_unwatch.WrongEndian=false;
+							RemoveWatch(auto_unwatch);							
+						}
 						else if(MessagePrefixMatch("SHORTTRACE"))
 						{
 							int minDepth = 0, maxDepth = -1;
