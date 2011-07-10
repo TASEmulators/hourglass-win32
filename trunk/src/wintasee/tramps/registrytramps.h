@@ -74,6 +74,8 @@ TRAMPFUNC LANGID WINAPI GetUserDefaultLangID() TRAMPOLINE_DEF
 TRAMPFUNC BOOL WINAPI GetKeyboardLayoutNameA(LPSTR pwszKLID) TRAMPOLINE_DEF
 #define GetKeyboardLayoutNameW TrampGetKeyboardLayoutNameW
 TRAMPFUNC BOOL WINAPI GetKeyboardLayoutNameW(LPWSTR pwszKLID) TRAMPOLINE_DEF
+#define GetKeyboardLayout TrampGetKeyboardLayout
+TRAMPFUNC HKL WINAPI GetKeyboardLayout(DWORD idThread) TRAMPOLINE_DEF
 
 #define CompareStringA TrampCompareStringA
 #define CompareStringW TrampCompareStringW

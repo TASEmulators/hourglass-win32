@@ -628,7 +628,7 @@ bool ShouldSkipDrawing(bool destIsFrontBuffer, bool destIsBackBuffer)
 HWND extHWnd = 0;
 
 char keyboardLayoutName [KL_NAMELENGTH*2];
-
+HKL g_hklOverride = 0;
 
 static DWORD g_videoFramesPrepared = 0;
 //static DWORD g_soundMixedTicks = 0;
@@ -1314,8 +1314,8 @@ struct MyClassFactory : IClassFactory
 
 	MyClassFactory(IClassFactory* cf) : m_cf(cf)
 	{
-		debugprintf(__FUNCTION__ " called.\n");
-		//cmdprintf("SHORTTRACE: 3,50");
+//		debugprintf(__FUNCTION__ " called.\n");
+//		cmdprintf("SHORTTRACE: 3,50");
 	}
 
 
@@ -1540,7 +1540,14 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 	//curtls.treatDLLLoadsAsClient++;
 
 	// moved from DllMain since it was causing a loader lock problem
-	LoadKeyboardLayout(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
+	//LoadKeyboardLayoutA(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
+	// activate disabled because it interferes with directinput in other apps (e.g. hourglass hotkeys)
+	g_hklOverride = LoadKeyboardLayoutA(keyboardLayoutName, 0);
+	if(!g_hklOverride)
+	{
+		sscanf(keyboardLayoutName, "%08X", &g_hklOverride);
+		(DWORD&)g_hklOverride = ((DWORD)g_hklOverride << 16) | ((DWORD)g_hklOverride & 0xFFFF);
+	}
 
 	if(tasflags.appLocale)
 	{

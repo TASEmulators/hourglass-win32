@@ -34,6 +34,8 @@ template<> struct IDirectInputDeviceTraits<IDirectInputDevice8W>  { typedef LPDI
 typedef std::vector<struct BufferedInput*> BufferedInputList;
 static BufferedInputList s_bufferedKeySlots;
 
+HOOKFUNC HKL WINAPI MyGetKeyboardLayout(DWORD idThread);
+
 struct BufferedInput
 {
 	DIDEVICEOBJECTDATA* data;
@@ -160,7 +162,7 @@ struct BufferedInput
 		{
 			// FIXME: this should only happen for the keyboard device
 			// convert event from VK to DIK
-			HKL keyboardLayout = GetKeyboardLayout(GetCurrentThreadId());
+			HKL keyboardLayout = MyGetKeyboardLayout(0);
 			int VK = inputEvent.dwOfs;
 			int DIK = MapVirtualKeyEx(VK, /*MAPVK_VK_TO_VSC*/0, keyboardLayout) & 0xFF;
 			inputEvent.dwOfs = DIK;
@@ -310,7 +312,7 @@ public:
 		// since the movie already has to store the VK constants,
 		// try to convert those to DIK key state
 
-		HKL keyboardLayout = GetKeyboardLayout(GetCurrentThreadId());
+		HKL keyboardLayout = MyGetKeyboardLayout(0);
 
 		if(size > 256)
 			size = 256;
