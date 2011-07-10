@@ -132,4 +132,9 @@ TRAMPFUNC VOID WINAPI ExitProcess(DWORD dwExitCode) TRAMPOLINE_DEF_VOID
 TRAMPFUNC BOOL WINAPI TlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) TRAMPOLINE_DEF
 #define FlsSetValue TrampFlsSetValue
 TRAMPFUNC BOOL WINAPI FlsSetValue(DWORD dwFlsIndex, LPVOID lpFlsData) TRAMPOLINE_DEF
+#define TlsGetValue TrampTlsGetValue
+TRAMPFUNC LPVOID WINAPI TlsGetValue(DWORD dwTlsIndex) TRAMPOLINE_DEF
+#define FlsGetValue TrampFlsGetValue
+TRAMPFUNC PVOID WINAPI FlsGetValue(DWORD dwFlsIndex) TRAMPOLINE_DEF
+
 #endif

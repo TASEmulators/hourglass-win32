@@ -841,7 +841,7 @@ HOOKFUNC BOOL WINAPI MyTlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) {
 		TlsRecursing = TRUE;
 		if (tseeds.find(dwTlsIndex) == tseeds.end()) {
 			_ptiddata ptd = (_ptiddata)TlsGetValue(dwTlsIndex);
-			debugprintf("FlsSetValue(%d,lpFlsData), set _tiddata structure at %08X",dwTlsIndex,ptd);
+			debugprintf("TlsSetValue(%d,lpTlsValue), set _tiddata structure at %08X",dwTlsIndex,ptd);
 			cmdprintf("WATCH: %08X,d,u,AutoRandSeed_Thread_%d",&(ptd->_holdrand),dwTlsIndex);
 			tseeds[dwTlsIndex] = &(ptd->_holdrand);
 		}
@@ -849,6 +849,11 @@ HOOKFUNC BOOL WINAPI MyTlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) {
 	}
 	return rv;
 }
+
+// not really hooked, I just needed their trampolines
+HOOKFUNC LPVOID WINAPI MyTlsGetValue(DWORD dwTlsIndex) IMPOSSIBLE_IMPL
+HOOKFUNC PVOID WINAPI MyFlsGetValue(DWORD dwFlsIndex) IMPOSSIBLE_IMPL
+
 
 void ModuleDllMainInit()
 {
@@ -871,6 +876,8 @@ void ApplyModuleIntercepts()
 		MAKE_INTERCEPT3(1, QUARTZ.DLL, DllGetClassObject, quartz), // this is mainly so we can hook the IReferenceClock used by DirectShow
 		MAKE_INTERCEPT(1, RPCRT4, IUnknown_QueryInterface_Proxy), // not sure if this is needed for anything
 
+		MAKE_INTERCEPT(0, KERNEL32, FlsGetValue), // get trampoline only
+		MAKE_INTERCEPT(0, KERNEL32, TlsGetValue), // get trampoline only
 		MAKE_INTERCEPT(1, KERNEL32, FlsSetValue),
 		MAKE_INTERCEPT(1, KERNEL32, TlsSetValue),
 
