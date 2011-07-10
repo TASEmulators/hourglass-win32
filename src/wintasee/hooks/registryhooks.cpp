@@ -466,6 +466,10 @@ HOOKFUNC LANGID WINAPI MyGetUserDefaultLangID()
 		return tasflags.appLocale;
 	return GetUserDefaultLangID();
 }
+
+extern char keyboardLayoutName [KL_NAMELENGTH*2];
+extern HKL g_hklOverride;
+
 HOOKFUNC BOOL WINAPI MyGetKeyboardLayoutNameA(LPSTR pwszKLID)
 {
 	debuglog(LCF_REGISTRY, __FUNCTION__ " called.\n");
@@ -473,6 +477,13 @@ HOOKFUNC BOOL WINAPI MyGetKeyboardLayoutNameA(LPSTR pwszKLID)
 	{
 		for(int i = 0; i < 8; i++)
 			pwszKLID[i] = ((tasflags.appLocale >> ((7-i) << 2)) & 0xF) + '0';
+		pwszKLID[8] = 0;
+		return TRUE;
+	}
+	if(*keyboardLayoutName)
+	{
+		for(int i = 0; i < 8; i++)
+			pwszKLID[i] = keyboardLayoutName[i];
 		pwszKLID[8] = 0;
 		return TRUE;
 	}
@@ -488,7 +499,22 @@ HOOKFUNC BOOL WINAPI MyGetKeyboardLayoutNameW(LPWSTR pwszKLID)
 		pwszKLID[8] = 0;
 		return TRUE;
 	}
+	if(*keyboardLayoutName)
+	{
+		for(int i = 0; i < 8; i++)
+			pwszKLID[i] = keyboardLayoutName[i];
+		pwszKLID[8] = 0;
+		return TRUE;
+	}
 	return GetKeyboardLayoutNameW(pwszKLID);
+}
+HOOKFUNC HKL WINAPI MyGetKeyboardLayout(DWORD idThread)
+{
+	debuglog(LCF_REGISTRY|LCF_FREQUENT, __FUNCTION__ "(0x%X) called.\n", idThread);
+	if(g_hklOverride)
+		return g_hklOverride;
+	HKL rv = GetKeyboardLayout(idThread);
+	return rv;
 }
 
 HOOKFUNC BOOL WINAPI MyTranslateCharsetInfo(DWORD FAR *lpSrc, LPCHARSETINFO lpCs, DWORD dwFlags)
@@ -776,6 +802,10 @@ void ApplyRegistryIntercepts()
 		//TODO: should be possible to replace those with: NtCreateKey, NtOpenKey, NtOpenKeyEx, NtQueryValueKey ... refer to article h ttp://www.codeproject.com/KB/system/NtRegistry.aspx
 
 		MAKE_INTERCEPT(1, USER32, GetSystemMetrics),
+
+		MAKE_INTERCEPT(1, USER32, GetKeyboardLayoutNameA),
+		MAKE_INTERCEPT(1, USER32, GetKeyboardLayoutNameW),
+		MAKE_INTERCEPT(1, USER32, GetKeyboardLayout),
 	};
 	ApplyInterceptTable(intercepts, ARRAYSIZE(intercepts));
 
@@ -803,8 +833,6 @@ void ApplyRegistryIntercepts()
 		MAKE_INTERCEPT(1, KERNEL32, GetUserDefaultUILanguage),
 		MAKE_INTERCEPT(1, KERNEL32, GetSystemDefaultLangID),
 		MAKE_INTERCEPT(1, KERNEL32, GetUserDefaultLangID),
-		MAKE_INTERCEPT(1, USER32, GetKeyboardLayoutNameA),
-		MAKE_INTERCEPT(1, USER32, GetKeyboardLayoutNameW),
 		MAKE_INTERCEPT(1, GDI32, TranslateCharsetInfo),
 		MAKE_INTERCEPT(1, GDI32, TextOutA),
 		MAKE_INTERCEPT(1, GDI32, TextOutW),
