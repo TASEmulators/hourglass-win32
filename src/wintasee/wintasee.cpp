@@ -1599,6 +1599,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		ModuleDllMainInit();
 
 		// in case the TASer tool needs to single out a version of this DLL for some reason
+		cmdprintf("SRCDLLVERSION: %d", SRCDLLVERSION); // must send before the DLLVERSION
 		cmdprintf("DLLVERSION: %d.%d, %s", 0, __LINE__, __DATE__);
 
 		// tell it where to put commands

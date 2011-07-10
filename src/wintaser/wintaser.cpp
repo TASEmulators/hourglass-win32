@@ -1337,6 +1337,29 @@ void ReceiveKeyboardLayout(__int64 pointerAsInt, HANDLE hProcess)
 	WriteProcessMemory(hProcess, (void*)pointerAsInt, name, KL_NAMELENGTH, &bytesWritten);
 }
 
+
+static bool gotSrcDllVersion = false;
+void CheckSrcDllVersion(int version)
+{
+	if((DWORD)version != (DWORD)SRCDLLVERSION)
+	{
+		const char* str;
+		if((DWORD)version > (DWORD)SRCDLLVERSION)
+			str = "Wrong version detected: This hourglass.exe is too old compared to wintasee.dll.\nPlease make sure you have extracted Hourglass properly.\nThe files that came with hourglass.exe must stay together with it.";
+		else
+			str = "Wrong version detected: wintasee.dll is too old compared to this hourglass.exe.\nPlease make sure you have extracted Hourglass properly.\nThe files that came with hourglass.exe must stay together with it.";
+		debugprintf("%s\n", str);
+		CustomMessageBox(str, "Version Problem", MB_OK | MB_ICONWARNING);
+	}
+	gotSrcDllVersion = true;
+}
+void ProcessDllVersion(const char* version)
+{
+	if(!gotSrcDllVersion)
+		CheckSrcDllVersion(0);
+}
+
+
 #ifdef _DEBUG
 // TEMP
 static char localCommandSlot_COPY [256];
@@ -6590,6 +6613,7 @@ restartgame:
 		savestates[i].stale = savestates[i].valid;
 
 	s_firstTimerDesyncWarnedFrame = 0x7FFFFFFF;
+	gotSrcDllVersion = false;
 
 	g_gammaRampEnabled = false;
 	dllLoadInfos.numInfos = 0;
@@ -6838,6 +6862,10 @@ restartgame:
 							usedThreadMode = threadMode;
 						else if(MessagePrefixMatch("POSTDLLMAINDONE"))
 							postDllMainDone = true;
+						else if(MessagePrefixMatch("SRCDLLVERSION"))
+							CheckSrcDllVersion(atoi(pstr));
+						else if(MessagePrefixMatch("DLLVERSION"))
+							ProcessDllVersion(pstr);
 						else if(MessagePrefixMatch("DEBUGPAUSE"))
 						{
 							debugprintf("DEBUGPAUSE: %s",pstr);
