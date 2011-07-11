@@ -255,6 +255,13 @@ bool InjectDLLIntoIDT(DWORD dwInjectProcessID, HANDLE hInjectProcess, HANDLE hIn
 }
 
 
+OSVERSIONINFO osvi = {sizeof(OSVERSIONINFO)};
+
+bool IsWindowsXP()    { return osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 1; }
+bool IsWindowsVista() { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 0; }
+bool IsWindows7()     { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 1; }
+
+
 
 //static bool iatInjectionEnabled = true;
 
@@ -1313,6 +1320,16 @@ void ReceiveGammaRampData(__int64 pointerAsInt, HANDLE hProcess)
 		g_gammaRampEnabled = false;
 	}
 }
+
+
+
+static void* remotePaletteEntriesPointer = 0;
+
+void ReceivePaletteEntriesPointer(__int64 pointerAsInt)
+{
+	remotePaletteEntriesPointer = (void*)pointerAsInt;
+}
+
 
 
 //void ReceiveExtHWndBuf(__int64 pointerAsInt)
@@ -3139,16 +3156,25 @@ struct AviFrameQueue
 					*(unsigned int*)aviPix = *(unsigned int*)inPix;
 			}
 		}
+		else if(bytesPerInPixel == 1 && !rmask && !gmask && !bmask)
+		{
+			// palettized case
+			static PALETTEENTRY activePalette [256];
+			ReadProcessMemory(hGameProcess, remotePaletteEntriesPointer, &activePalette, sizeof(activePalette), NULL);
+			for(int yDst = height-1; yDst >= 0; yDst--)
+			{
+				unsigned char* inPix = curInPixels + (yDst * pitch);
+				for(int xDst = 0; xDst < width; xDst++, inPix++, aviPix += bytesPerAVIPixel)
+				{
+					PALETTEENTRY entry = activePalette[*(unsigned char*)inPix];
+					aviPix[0] = entry.peBlue;
+					aviPix[1] = entry.peGreen;
+					aviPix[2] = entry.peRed;
+				}
+			}
+		}
 		else
 		{
-			if(bytesPerInPixel == 1 && !rmask && !gmask && !bmask)
-			{
-				// hack, until I can figure out how to get the palette
-				rmask = 0x3F; rShiftLeft = 2;
-				gmask = 0xFF;
-				bmask = 0x0F; bShiftLeft = 4;
-			}
-
 			// general case
 			for(int yDst = height-1; yDst >= 0; yDst--)
 			{
@@ -6856,6 +6882,8 @@ restartgame:
 						//	ReceiveExtHWndBuf(_atoi64(pstr));
 						else if(MessagePrefixMatch("GAMMARAMPDATA"))
 							ReceiveGammaRampData(_atoi64(pstr), hProcess);
+						else if(MessagePrefixMatch("PALETTEENTRIES"))
+							ReceivePaletteEntriesPointer(_atoi64(pstr));
 						else if(MessagePrefixMatch("KEYBLAYOUT"))
 							ReceiveKeyboardLayout(_atoi64(pstr), hProcess);
 						else if(MessagePrefixMatch("DENIEDTHREAD"))
@@ -7743,9 +7771,20 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	InitializeCriticalSection(&g_processMemCS);
 	InitializeCriticalSection(&g_debugPrintCS);
 	InitializeCriticalSection(&g_gameHWndsCS);
+
+	GetVersionEx(&osvi);
+	if(!IsWindowsXP() && !IsWindows7())
+	{
+		// HACK: disable a feature on systems not supported by the current implementation of MyKiUserCallbackDispatcher
+		allowLoadInstalledDlls = true;
+		allowLoadUxtheme = true;
+	}
+
 	InitRamSearch();
 
 	Load_Config();
+
+
 
 	MSG msg;
 	if (!InitInstance (hInstance, nCmdShow)) // this calls our DlgProc with WM_SHOWWINDOW

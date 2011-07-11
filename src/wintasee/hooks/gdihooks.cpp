@@ -61,11 +61,18 @@ static void FrameBoundaryDIBitsToAVI(const void* bits, const BITMAPINFO& bmi)
 			desc.ddpfPixelFormat.dwGBitMask = 0x03E0;
 			desc.ddpfPixelFormat.dwBBitMask = 0x001F;
 			break;
-		case 8:
-			// NYI
-			//descExtra.paletteData = (PALETTEENTRY*)bmi.bmiColors;
-			//descExtra.paletteEntryCount = bmi.bmiHeader.biClrUsed;
-			break;
+		case 8: {
+			int numEntries = 256;
+			if(bmi.bmiHeader.biClrUsed)
+				numEntries = min(256, bmi.bmiHeader.biClrUsed);
+			for(int i = 0; i < numEntries; i++)
+			{
+				activePalette[i].peBlue = bmi.bmiColors[i].rgbBlue;
+				activePalette[i].peGreen = bmi.bmiColors[i].rgbGreen;
+				activePalette[i].peRed = bmi.bmiColors[i].rgbRed;
+				activePalette[i].peFlags = bmi.bmiColors[i].rgbReserved;
+			}
+		}	break;
 		default:
 			valid = false;
 			break;

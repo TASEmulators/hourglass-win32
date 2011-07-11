@@ -213,6 +213,8 @@ struct MyDirect3DDevice9
 			if(pSurface != pBackBuffer)
 				if(FAILED(pThis->GetRenderTargetData(pBackBuffer,pSurface)))
 					pSurface = pBackBuffer;
+			if(desc.ddpfPixelFormat.dwRGBBitCount == 8)
+				pThis->GetPaletteEntries(0, &activePalette[0]);
 			Lock(pThis, desc, pSurface, false);
 	#ifdef _DEBUG
 			DWORD time2 = timeGetTime();

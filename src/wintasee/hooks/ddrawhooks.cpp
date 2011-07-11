@@ -285,6 +285,15 @@ struct MyDirectDrawSurface
 				if(pSurface != pBackBuffer)
 					if(!pSurface || FAILED(BltFast(pSurface, 0,0,pBackBuffer,NULL,DDBLTFAST_WAIT)))
 						pSurface = pBackBuffer; // fallback
+				if(desc.ddpfPixelFormat.dwRGBBitCount == 8)
+				{
+					LPDIRECTDRAWPALETTE pPalette;
+					if(SUCCEEDED(pSurface->GetPalette(&pPalette)))
+					{
+						pPalette->GetEntries(0, 0, 256, &activePalette[0]);
+						pPalette->Release();
+					}
+				}
 				pSurface->Lock(NULL, &desc, DDLOCK_SURFACEMEMORYPTR | DDLOCK_WAIT | DDLOCK_READONLY, NULL); 
 				FrameBoundary(&desc, CAPTUREINFO_TYPE_DDSD);
 				pSurface->Unlock(NULL);

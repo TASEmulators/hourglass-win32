@@ -280,6 +280,7 @@ extern DllLoadInfos dllLoadInfos;
 
 TasFlags tasflags = {};
 
+PALETTEENTRY activePalette [256];
 
 //HACK for externs
 LogCategoryFlag& g_includeLogFlags = tasflags.includeLogFlags;
@@ -1622,6 +1623,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 
 		// tell it where we put other information (statistics for the debugger, etc)
 		cmdprintf("GENERALINFO: %Iu", &infoForDebugger);
+		cmdprintf("PALETTEENTRIES: %Iu", &activePalette);
 
 		// for the external viewport (a test/debugging thing that's probably currently disabled)
 		cmdprintf("EXTHWNDBUF: %Iu", &extHWnd);
