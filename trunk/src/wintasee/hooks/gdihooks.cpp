@@ -100,10 +100,10 @@ static void FrameBoundaryDIBitsToAVI(const void* bits, const BITMAPINFO& bmi)
 	}
 }
 
-union FULLBITMAPINFO
+struct FULLBITMAPINFO
 {
 	BITMAPINFO bmi;
-    RGBQUAD remainingColors [255 + 3*sizeof(DWORD)];
+    RGBQUAD remainingColors [255];
 };
 
 //#define UNSELECT_BEFORE_HDC_CAPTURE // TODO: if this doesn't slow down AVI capture of GDI games and it doesn't break anything when savestates are loaded during AVI capture of GDI games, then enable it
