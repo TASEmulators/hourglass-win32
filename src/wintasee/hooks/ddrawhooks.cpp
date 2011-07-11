@@ -45,6 +45,12 @@ static RECT a_bltsaved_buf = {0};
 static RECT c_bltsaved_buf = {0};
 static DDBLTFX e_bltsaved_buf = {0};
 
+struct ManualHDCInfo
+{
+	HBITMAP oldBitmap;
+};
+std::map<HDC,ManualHDCInfo> manuallyCreatedSurfaceDCs;
+
 
 void RescaleRect(RECT& rect, RECT from, RECT to);
 void ConfineRect(RECT& rect, RECT bounds)
@@ -726,8 +732,8 @@ struct MyDirectDrawSurface
 //cmdprintf("DEBUGPAUSE: " __FUNCTION__);
 				if(!(lockFlags & (DDLOCK_WRITEONLY|DDLOCK_DISCARDCONTENTS)))
 				{
-					DDSURFACEDESCN ddsdBB = { sizeof(DDSURFACEDESCN) };
-					GetSurfaceDesc(pBackbuffer, &ddsdBB);
+					//DDSURFACEDESCN ddsdBB = { sizeof(DDSURFACEDESCN), DDSD_WIDTH | DDSD_HEIGHT };
+					//GetSurfaceDesc(pBackbuffer, &ddsdBB);
 					RECT rect = {0, 0, 1, 1 };
 					//RECT rect = {0, 0, ddsdBB.dwWidth, ddsdBB.dwHeight };
 					//POINT pt = {0,0};
@@ -797,29 +803,82 @@ struct MyDirectDrawSurface
 		return rv;
 	}
 
-
-
 	static HRESULT(STDMETHODCALLTYPE *GetDC)(DIRECTDRAWSURFACEN* pThis, HDC* lphDC);
 	static HRESULT STDMETHODCALLTYPE MyGetDC(DIRECTDRAWSURFACEN* pThis, HDC* lphDC)
 	{
+		if(!lphDC)
+			return DDERR_INVALIDPARAMS;
+
+		// normal case
 		HRESULT rv = GetDC(pThis, lphDC);
 		ddrawdebugprintf(__FUNCTION__ " called. returned 0x%X, got 0x%X\n", rv, lphDC?*lphDC:0);
-		return rv;
+		
+		if(FAILED(rv))
+		{
+			// fallback for video cards that have bugs with GetDC on a DirectDraw surface
+			DDSURFACEDESCN desc = { sizeof(DDSURFACEDESCN), DDSD_HEIGHT };
+			if(FAILED(GetSurfaceDesc(pThis,&desc)))
+				{	*lphDC = NULL; return DDERR_CANTCREATEDC; }
+			HDC hdcWnd = ::GetDC(gamehwnd);
+			HDC hdc = ::CreateCompatibleDC(hdcWnd);
+			if(!hdc || FAILED(Lock(pThis,NULL,&desc,DDLOCK_WAIT|DDLOCK_READONLY,NULL)))
+				{	*lphDC = NULL; ::ReleaseDC(gamehwnd,hdcWnd); return DDERR_CANTCREATEDC; }
+			int width = desc.lPitch * 8 / desc.ddpfPixelFormat.dwRGBBitCount;
+			int height = desc.dwHeight;
+			HBITMAP hbmp = ::CreateCompatibleBitmap(hdcWnd,width,height);
+			::ReleaseDC(gamehwnd,hdcWnd);
+			struct { BITMAPINFO bmi;
+				RGBQUAD remainingColors [255];
+			} fbmi = {sizeof(BITMAPINFOHEADER)};
+			BITMAPINFO& bmi = *(BITMAPINFO*)&fbmi;
+			::GetDIBits(hdc, hbmp, 0, 0, 0, &bmi, DIB_RGB_COLORS);
+			bmi.bmiHeader.biHeight = -height;
+			bmi.bmiHeader.biCompression = BI_RGB;
+			::SetDIBits(hdc,hbmp,0,height,desc.lpSurface,&bmi,0);
+			Unlock(pThis,NULL);
+			ManualHDCInfo info;
+			info.oldBitmap = (HBITMAP)::SelectObject(hdc, hbmp);
+			manuallyCreatedSurfaceDCs[hdc] = info;
+			*lphDC = hdc;
+		}
+		return DD_OK;
 	}
 
-	static HRESULT(STDMETHODCALLTYPE *ReleaseDC)(DIRECTDRAWSURFACEN* pThis, HDC hDC);
-	static HRESULT STDMETHODCALLTYPE MyReleaseDC(DIRECTDRAWSURFACEN* pThis, HDC hDC)
+	static HRESULT(STDMETHODCALLTYPE *ReleaseDC)(DIRECTDRAWSURFACEN* pThis, HDC hdc);
+	static HRESULT STDMETHODCALLTYPE MyReleaseDC(DIRECTDRAWSURFACEN* pThis, HDC hdc)
 	{
 		ddrawdebugprintf(__FUNCTION__ " called.\n");
+		std::map<HDC,ManualHDCInfo>::iterator found = manuallyCreatedSurfaceDCs.find(hdc);
+		if(found == manuallyCreatedSurfaceDCs.end())
+		{
+			// normal case
+			HRESULT rv = ReleaseDC(pThis, hdc);
+			if(SUCCEEDED(rv))
+				videoMemoryBackupDirty[pThis] = TRUE;
+			return rv;
+		}
 
-		HRESULT rv = ReleaseDC(pThis, hDC);
-
-		//// backup the surface pixels if it's in video memory, for savestates.
-		//BackupVideoMemory(pThis);
-
-		videoMemoryBackupDirty[pThis] = TRUE;
-
-		return rv;
+		// fallback for video cards that have bugs with GetDC on a DirectDraw surface
+		ManualHDCInfo info = found->second;
+		manuallyCreatedSurfaceDCs.erase(found);
+		DDSURFACEDESCN desc = { sizeof(DDSURFACEDESCN), DDSD_HEIGHT };
+		GetSurfaceDesc(pThis, &desc);
+		Lock(pThis,NULL,&desc,DDLOCK_WAIT|DDLOCK_WRITEONLY,NULL);
+		int width = desc.lPitch * 8 / desc.ddpfPixelFormat.dwRGBBitCount;
+		int height = desc.dwHeight;
+		HBITMAP hbmp = (HBITMAP)SelectObject(hdc, info.oldBitmap);
+		struct { BITMAPINFO bmi;
+			RGBQUAD remainingColors [255];
+		} fbmi = {sizeof(BITMAPINFOHEADER)};
+		BITMAPINFO& bmi = *(BITMAPINFO*)&fbmi;
+		::GetDIBits(hdc, hbmp, 0, 0, 0, &bmi, DIB_RGB_COLORS);
+		bmi.bmiHeader.biHeight = -height;
+		bmi.bmiHeader.biCompression = BI_RGB;
+		::GetDIBits(hdc,hbmp,0,height,desc.lpSurface,&bmi,0);
+		Unlock(pThis,NULL);
+		::DeleteObject((HGDIOBJ)hbmp);
+		::DeleteDC(hdc);
+		return DD_OK;
 	}
 
 	static HRESULT(STDMETHODCALLTYPE *GetFlipStatus)(DIRECTDRAWSURFACEN* pThis, DWORD flags);
