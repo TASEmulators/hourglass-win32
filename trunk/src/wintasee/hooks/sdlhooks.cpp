@@ -41,6 +41,8 @@ static void SDLFrameBoundary(SDL_Surface* screen)
 		desc.ddpfPixelFormat.dwRBitMask = screen->format->Rmask;
 		desc.ddpfPixelFormat.dwGBitMask = screen->format->Gmask;
 		desc.ddpfPixelFormat.dwBBitMask = screen->format->Bmask;
+		if(desc.ddpfPixelFormat.dwRGBBitCount == 8 && screen->format->palette)
+			memcpy(&activePalette[0], &screen->format->palette->entries[0], min(256, screen->format->palette->entryCount));
 
 		FrameBoundary(&desc, CAPTUREINFO_TYPE_DDSD);
 

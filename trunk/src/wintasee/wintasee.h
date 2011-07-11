@@ -25,6 +25,7 @@ extern int fakeDisplayHeight;
 extern int fakePixelFormatBPP;
 extern int fakeDisplayRefresh;
 extern bool usingSDLOrDD;
+extern PALETTEENTRY activePalette [256];
 //extern bool inPauseHandler;
 extern bool redrawingScreen;
 extern bool pauseHandlerSuspendedSound;

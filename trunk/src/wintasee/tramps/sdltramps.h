@@ -4,8 +4,12 @@
 #ifndef SDLTRAMPS_H_INCL
 #define SDLTRAMPS_H_INCL
 
+struct SDL_Palette {
+  int entryCount;
+  PALETTEENTRY* entries;
+};
 struct SDL_PixelFormat {
-	void* palette;
+	SDL_Palette* palette;
 	unsigned char BitsPerPixel;
 	unsigned char BytesPerPixel;
 	unsigned char Rloss;
