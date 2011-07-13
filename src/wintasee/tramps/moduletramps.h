@@ -127,13 +127,22 @@ TRAMPFUNC VOID WINAPI ExitProcess(DWORD dwExitCode) TRAMPOLINE_DEF_VOID
 ////#define DllGetClassObject TrampDllGetClassObject
 //TRAMPFUNC HRESULT STDAPICALLTYPE TrampDllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv) TRAMPOLINE_DEF
 
+#ifdef TlsSetValue
+#error this shouldn't happen (TlsSetValue already defined)
+#endif
 
+// hack: because we need to call TlsSetValue/TlsGetValue potentially very early in the startup process,
+// let the TlsSetValue/TlsGetValue macros act like trampolines both before and after their respective functions have been hooked.
+// this might seem universally safer, but the reason we usually avoid this way of defining trampolines is because:
+// if the function doesn't exist in the DLL, it will cause the game to immediately crash on startup.
+// for example, it's not safe to do this for FlsSetValue/FlsGetValue because those don't exist on Windows XP.
+TRAMPFUNC BOOL WINAPI TrampTlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) TRAMPOLINE_DEF_CUSTOM(return TlsSetValue(dwTlsIndex,lpTlsValue))
 #define TlsSetValue TrampTlsSetValue
-TRAMPFUNC BOOL WINAPI TlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) TRAMPOLINE_DEF
+TRAMPFUNC LPVOID WINAPI TrampTlsGetValue(DWORD dwTlsIndex) TRAMPOLINE_DEF_CUSTOM(return TlsGetValue(dwTlsIndex))
+#define TlsGetValue TrampTlsGetValue
+
 #define FlsSetValue TrampFlsSetValue
 TRAMPFUNC BOOL WINAPI FlsSetValue(DWORD dwFlsIndex, LPVOID lpFlsData) TRAMPOLINE_DEF
-#define TlsGetValue TrampTlsGetValue
-TRAMPFUNC LPVOID WINAPI TlsGetValue(DWORD dwTlsIndex) TRAMPOLINE_DEF
 #define FlsGetValue TrampFlsGetValue
 TRAMPFUNC PVOID WINAPI FlsGetValue(DWORD dwFlsIndex) TRAMPOLINE_DEF
 

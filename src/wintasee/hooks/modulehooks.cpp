@@ -825,7 +825,7 @@ HOOKFUNC BOOL WINAPI MyFlsSetValue(DWORD dwFlsIndex, LPVOID lpFlsData) {
 		FlsRecursing = TRUE;
 		if (fseeds.find(dwFlsIndex) == fseeds.end()) {
 			_ptiddata ptd = (_ptiddata)FlsGetValue(dwFlsIndex);
-			debugprintf("FlsSetValue(%d,lpFlsData), set _tiddata structure at %08X",dwFlsIndex,ptd);
+			debuglog(LCF_THREAD,"FlsSetValue(%d,lpFlsData), set _tiddata structure at %08X",dwFlsIndex,ptd);
 			cmdprintf("WATCH: %08X,d,u,AutoRandSeed_Fiber_%d",&(ptd->_holdrand),dwFlsIndex);
 			fseeds[dwFlsIndex] = &(ptd->_holdrand);
 		}
@@ -841,7 +841,7 @@ HOOKFUNC BOOL WINAPI MyTlsSetValue(DWORD dwTlsIndex, LPVOID lpTlsValue) {
 		TlsRecursing = TRUE;
 		if (tseeds.find(dwTlsIndex) == tseeds.end()) {
 			_ptiddata ptd = (_ptiddata)TlsGetValue(dwTlsIndex);
-			debugprintf("TlsSetValue(%d,lpTlsValue), set _tiddata structure at %08X",dwTlsIndex,ptd);
+			debuglog(LCF_THREAD,"TlsSetValue(%d,lpTlsValue), set _tiddata structure at %08X",dwTlsIndex,ptd);
 			cmdprintf("WATCH: %08X,d,u,AutoRandSeed_Thread_%d",&(ptd->_holdrand),dwTlsIndex);
 			tseeds[dwTlsIndex] = &(ptd->_holdrand);
 		}
