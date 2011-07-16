@@ -413,7 +413,7 @@ void UpdateRegionT(const MemoryRegion& region, const MemoryRegion* nextRegionPtr
 					if(i >= indexEnd+k)
 						continue;
 					int m = (j-k+sizeof(compareType)) & (sizeof(compareType)-1);
-					if(nextValidChange[m]+sizeof(compareType) <= i+sizeof(compareType)) // if we didn't already increase the change count for this entry
+					if(nextValidChange[m]+sizeof(compareType) <= i) // if we didn't already increase the change count for this entry
 					{
 						//if(s_numChanges[i-k] != 0xFFFF)
 							s_numChanges[i-k]++; // increase the change count for this entry
