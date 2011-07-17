@@ -528,6 +528,19 @@ private:
 
 
 
+// requires both buffers given to be at least MAX_PATH characters in size.
+// it is allowed for both arguments to point at the same buffer.
+char* NormalizePath(char* output, const char* path)
+{
+	DWORD len = GetFullPathNameA(path, MAX_PATH, output, NULL);
+	if(len && len < MAX_PATH)
+		GetLongPathNameA(output, output, MAX_PATH); // GetFullPathName won't always convert short filenames to long filenames
+	else if(path != output)
+		strcpy(output, path);
+	return output;
+}
+
+
 #include <stdio.h>
 #include <tchar.h>
 #include <string.h>
@@ -567,6 +580,7 @@ static bool TranslateDeviceName(TCHAR* pszFilename)
 			}
 			while(*p++);
 		} while(!bFound && *p);
+		NormalizePath(pszFilename, pszFilename);
 		return true;
 	}
 	return false;
@@ -4430,9 +4444,10 @@ void PrintPrivileges(HANDLE hProcess)
 void PrintPrivileges(HANDLE hProcess) {}
 #endif
 
-static void AbsolutifyPath(char* buf, int bufsize)
+static void AbsolutifyPath(char* buf)
 {
-	SearchPath(NULL, buf, NULL, bufsize, buf, NULL);
+	SearchPath(NULL, buf, NULL, MAX_PATH, buf, NULL);
+	NormalizePath(buf, buf);
 }
 
 const char* ExceptionCodeToDescription(DWORD code, const char* defaultRv="(unknown exception code)")
@@ -6566,7 +6581,7 @@ restartgame:
 	InitializeCriticalSection(&g_processMemCS);
 
 	subexefilename[0] = 0;
-	AbsolutifyPath(exefilename, MAX_PATH);
+	AbsolutifyPath(exefilename);
 	char initialDirectory [MAX_PATH+1];
 	strcpy(initialDirectory, exefilename);
 	char* slash = max(strrchr(initialDirectory, '\\'), strrchr(initialDirectory, '/'));
@@ -7772,6 +7787,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	InitializeCriticalSection(&g_debugPrintCS);
 	InitializeCriticalSection(&g_gameHWndsCS);
 
+	NormalizePath(thisprocessPath, thisprocessPath);
+
 	GetVersionEx(&osvi);
 	if(!IsWindowsXP() && !IsWindows7())
 	{
@@ -8177,7 +8194,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				{
 					strcpy(path, exefilename);
 				}
-				AbsolutifyPath(path, MAX_PATH);
+				AbsolutifyPath(path);
 				char temp_moviefilename [MAX_PATH+1];
 				strcpy(temp_moviefilename, moviefilename);
 				movienameCustomized = false;
