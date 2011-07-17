@@ -1543,12 +1543,15 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 	// moved from DllMain since it was causing a loader lock problem
 	//LoadKeyboardLayoutA(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
 	// activate disabled because it interferes with directinput in other apps (e.g. hourglass hotkeys)
-	g_hklOverride = LoadKeyboardLayoutA(keyboardLayoutName, 0);
-	if(!g_hklOverride)
+	HKL loadLayoutRv = LoadKeyboardLayoutA(keyboardLayoutName, 0);
+	g_hklOverride = loadLayoutRv;
+	//if(!loadLayoutRv) // because LoadKeyboardLayout sometimes lies about succeeding and returns the default layout, let's always go into the fallback branch to ensure consistency
 	{
 		sscanf(keyboardLayoutName, "%08X", &g_hklOverride);
-		(DWORD&)g_hklOverride = ((DWORD)g_hklOverride << 16) | ((DWORD)g_hklOverride & 0xFFFF);
+		if(!((DWORD)g_hklOverride & 0xFFFF0000))
+			(DWORD&)g_hklOverride |= ((DWORD)g_hklOverride << 16);
 	}
+	debugprintf("keyboardLayout = %s, hkl = %08X -> %08X", keyboardLayoutName, loadLayoutRv, g_hklOverride);
 
 	if(tasflags.appLocale)
 	{
