@@ -335,6 +335,7 @@
 #define ID_EXEC_LOCALE_JAPANESE         40412
 #define ID_EXEC_LOCALE_CHINESE          40413
 #define ID_EXEC_LOCALE_KOREAN           40414
+#define ID_EXEC_THREADS_FULLSYNC        40450
 #define ID_RAM_SEARCH                   40522
 #define ID_RAM_WATCH                    40523
 #define ID_TIME_RATE_100                40550
@@ -382,6 +383,8 @@
 #define IDC_HEX                         42151
 #define IDC_C_UNDO                      42152
 #define IDC_C_RESET_CHANGES             42153
+#define IDC_FLOAT                       42154
+#define IDC_8_BYTES                     42155
 #define IDC_PREVIOUSVALUE               43147
 #define IDC_SPECIFICVALUE               43148
 #define IDC_CHEATEDITVALUE              43156

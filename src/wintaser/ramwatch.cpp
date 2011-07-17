@@ -42,6 +42,7 @@ extern HINSTANCE hInst;
 extern CRITICAL_SECTION g_processMemCS;
 extern char exefilename [MAX_PATH+1];
 extern char thisprocessPath [MAX_PATH+1];
+extern bool started;
 static char Str_Tmp_RW [1024];
 
 void init_list_box(HWND Box, const char* Strs[], int numColumns, int *columnWidths); //initializes the ram search and/or ram watch listbox
@@ -51,9 +52,9 @@ void init_list_box(HWND Box, const char* Strs[], int numColumns, int *columnWidt
 bool QuickSaveWatches();
 bool ResetWatches();
 
-unsigned int GetCurrentValue(AddressWatcher& watch)
+RSVal GetCurrentValue(AddressWatcher& watch)
 {
-	return ReadValueAtHardwareAddress(watch.Address, watch.Size == 'd' ? 4 : watch.Size == 'w' ? 2 : 1);
+	return ReadValueAtHardwareAddress(watch.Address, watch.Size, watch.Type);
 }
 
 bool IsSameWatch(const AddressWatcher& l, const AddressWatcher& r)
@@ -61,10 +62,12 @@ bool IsSameWatch(const AddressWatcher& l, const AddressWatcher& r)
 	return ((l.Address == r.Address) && (l.Size == r.Size) && (l.Type == r.Type)/* && (l.WrongEndian == r.WrongEndian)*/);
 }
 
-bool VerifyWatchNotAlreadyAdded(const AddressWatcher& watch)
+bool VerifyWatchNotAlreadyAdded(const AddressWatcher& watch, int skipIndex=-1)
 {
 	for (int j = 0; j < WatchCount; j++)
 	{
+		if(j == skipIndex)
+			continue;
 		if(IsSameWatch(rswatches[j], watch))
 		{
 			if(RamWatchHWnd)
@@ -98,6 +101,8 @@ bool InsertWatch(const AddressWatcher& Watch, char *Comment)
 
 	return true;
 }
+
+
 
 LRESULT CALLBACK PromptWatchNameProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) //Gets the description of a watched address
 {
@@ -187,9 +192,9 @@ void Update_RAM_Watch()
 		EnterCriticalSection(&g_processMemCS);
 		for(int i = 0; i < WatchCount; i++)
 		{
-			unsigned int prevCurValue = rswatches[i].CurValue;
-			unsigned int newCurValue = GetCurrentValue(rswatches[i]);
-			if(prevCurValue != newCurValue)
+			RSVal prevCurValue = rswatches[i].CurValue;
+			RSVal newCurValue = GetCurrentValue(rswatches[i]);
+			if(!prevCurValue.CheckBinaryEquality(newCurValue))
 			{
 				rswatches[i].CurValue = newCurValue;
 				watchChanged[i] = TRUE;
@@ -230,7 +235,7 @@ bool AskSave()
 {
 	//This function asks to save changes if the watch file contents have changed
 	//returns false only if a save was attempted but failed or was cancelled
-	if(RWfileChanged)
+	if(RWfileChanged && WatchCount > 0)
 	{
 		int answer = MessageBox(MESSAGEBOXPARENT, "Save Changes?", "Ram Watch", MB_YESNOCANCEL);
 		if(answer == IDYES)
@@ -422,8 +427,12 @@ void OpenRWRecentFile(int memwRFileNumber)
 		} while(Str_Tmp_RW[0] == '\n');
 		sscanf(Str_Tmp_RW,"%*05X%*c%08X%*c%c%*c%c%*c%d",&(Temp.Address),&(Temp.Size),&(Temp.Type),&(Temp.WrongEndian));
 		Temp.WrongEndian = 0;
-		char *Comment = strrchr(Str_Tmp_RW,DELIM) + 1;
-		*strrchr(Comment,'\n') = '\0';
+		char* Comment = strrchr(Str_Tmp_RW,DELIM) + 1;
+		if(Comment == (char*)NULL + 1)
+			continue;
+		char* newline = strrchr(Comment,'\n');
+		if(newline)
+			*newline = '\0';
 		InsertWatch(Temp,Comment);
 	}
 
@@ -648,6 +657,8 @@ bool ResetWatches()
 
 void RemoveWatch(int watchIndex)
 {
+	if((unsigned int)watchIndex >= (unsigned int)WatchCount)
+		return;
 	free(rswatches[watchIndex].comment);
 	rswatches[watchIndex].comment = NULL;
 	for (int i = watchIndex; i <= WatchCount; i++)
@@ -655,14 +666,36 @@ void RemoveWatch(int watchIndex)
 	WatchCount--;
 }
 
-void RemoveWatch(const AddressWatcher &watch) {
+void RemoveWatch(const AddressWatcher &watch, int ignoreIndex) {
 	for (int i = 0; i < WatchCount; i++) {
+		if (i == ignoreIndex)
+			continue;
 		if (IsSameWatch(rswatches[i],watch)) {
 			RemoveWatch(i);
 			break;
 		}
 	}
 }
+
+
+bool ReplaceWatch(const AddressWatcher& Watch, char* Comment, int index)
+{
+	if(index < WatchCount)
+		RemoveWatch(index);
+	if(InsertWatch(Watch,Comment))
+	{
+		int moveCount = (WatchCount-1)-index;
+		if(moveCount > 0)
+		{
+			AddressWatcher Temp = rswatches[WatchCount-1];
+			memmove(&(rswatches[index + 1]),&(rswatches[index]),sizeof(AddressWatcher)*moveCount);
+			rswatches[index] = Temp;
+		}
+		return true;
+	}
+	return false;
+}
+
 
 LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam) //Gets info for a RAM Watch, and then inserts it into the Watch List
 {
@@ -706,6 +739,9 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 				case 'd':
 					SendDlgItemMessage(hDlg, IDC_4_BYTES, BM_SETCHECK, BST_CHECKED, 0);
 					break;
+				case 'l':
+					SendDlgItemMessage(hDlg, IDC_8_BYTES, BM_SETCHECK, BST_CHECKED, 0);
+					break;
 				default:
 					s = 0;
 					break;
@@ -714,12 +750,31 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 			{
 				case 's':
 					SendDlgItemMessage(hDlg, IDC_SIGNED, BM_SETCHECK, BST_CHECKED, 0);
+					EnableWindow(GetDlgItem(hDlg,IDC_1_BYTE),true);
+					EnableWindow(GetDlgItem(hDlg,IDC_2_BYTES),true);
 					break;
 				case 'u':
 					SendDlgItemMessage(hDlg, IDC_UNSIGNED, BM_SETCHECK, BST_CHECKED, 0);
+					EnableWindow(GetDlgItem(hDlg,IDC_1_BYTE),true);
+					EnableWindow(GetDlgItem(hDlg,IDC_2_BYTES),true);
 					break;
 				case 'h':
 					SendDlgItemMessage(hDlg, IDC_HEX, BM_SETCHECK, BST_CHECKED, 0);
+					EnableWindow(GetDlgItem(hDlg,IDC_1_BYTE),true);
+					EnableWindow(GetDlgItem(hDlg,IDC_2_BYTES),true);
+					break;
+				case 'f':
+					SendDlgItemMessage(hDlg, IDC_FLOAT, BM_SETCHECK, BST_CHECKED, 0);
+					if(s == 'b' || s == 'w')
+					{
+						SendDlgItemMessage(hDlg, IDC_4_BYTES, BM_SETCHECK, BST_CHECKED, 0);
+						SendDlgItemMessage(hDlg, IDC_8_BYTES, BM_SETCHECK, BST_UNCHECKED, 0);
+						SendDlgItemMessage(hDlg, IDC_2_BYTES, BM_SETCHECK, BST_UNCHECKED, 0);
+						SendDlgItemMessage(hDlg, IDC_1_BYTE, BM_SETCHECK, BST_UNCHECKED, 0);
+						s = 'd';
+					}
+					EnableWindow(GetDlgItem(hDlg,IDC_1_BYTE),false);
+					EnableWindow(GetDlgItem(hDlg,IDC_2_BYTES),false);
 					break;
 				default:
 					t = 0;
@@ -741,6 +796,9 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 				case IDC_HEX:
 					t='h';
 					return true;
+				case IDC_FLOAT:
+					t='f';
+					return true;
 				case IDC_1_BYTE:
 					s = 'b';
 					return true;
@@ -749,6 +807,9 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 					return true;
 				case IDC_4_BYTES:
 					s = 'd';
+					return true;
+				case IDC_8_BYTES:
+					s = 'l';
 					return true;
 				case IDOK:
 				{
@@ -764,23 +825,34 @@ LRESULT CALLBACK EditWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPara
 						for(int i = 0; addrstr[i]; i++) {if(toupper(addrstr[i]) == 'O') addrstr[i] = '0';}
 						sscanf(addrstr,"%08X",&(Temp.Address));
 
-						if((Temp.Address & ~0xFFFFFF) == ~0xFFFFFF)
-							Temp.Address &= 0xFFFFFF;
+						//if((Temp.Address & ~0xFFFFFF) == ~0xFFFFFF)
+						//	Temp.Address &= 0xFFFFFF;
 
-						if(IsHardwareAddressValid(Temp.Address))
+						bool canceled = false;
+						if(!VerifyWatchNotAlreadyAdded(Temp, index))
 						{
-							GetDlgItemText(hDlg,IDC_PROMPT_EDIT,Str_Tmp_RW,80);
-							if(index < WatchCount) RemoveWatch(index);
-							InsertWatch(Temp,Str_Tmp_RW);
-							if(RamWatchHWnd)
-							{
-								ListView_SetItemCount(GetDlgItem(RamWatchHWnd,IDC_WATCHLIST),WatchCount);
-							}
-							EndDialog(hDlg, true);
+							int result = MessageBox(hDlg,"Watch already exists. Replace it?","REPLACE",MB_YESNO);
+							if(result == IDYES)
+								RemoveWatch(Temp, index);
+							if(result == IDNO)
+								canceled = true;
 						}
-						else
+						if(!canceled)
 						{
-							MessageBox(hDlg,"Invalid Address","ERROR",MB_OK);
+							if(IsHardwareAddressValid(Temp.Address) || !started || (index < WatchCount && Temp.Address == rswatches[index].Address))
+							{
+								GetDlgItemText(hDlg,IDC_PROMPT_EDIT,Str_Tmp_RW,80);
+								ReplaceWatch(Temp,Str_Tmp_RW,index);
+								if(RamWatchHWnd)
+								{
+									ListView_SetItemCount(GetDlgItem(RamWatchHWnd,IDC_WATCHLIST),WatchCount);
+								}
+								EndDialog(hDlg, true);
+							}
+							else
+							{
+								MessageBox(hDlg,"Invalid Address","ERROR",MB_OK);
+							}
 						}
 					}
 					else
@@ -885,7 +957,6 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 			else
 				signal_new_frame();
 			ListView_SetItemCount(GetDlgItem(hDlg,IDC_WATCHLIST),WatchCount);
-			if(!noMisalign) SendDlgItemMessage(hDlg, IDC_MISALIGN, BM_SETCHECK, BST_CHECKED, 0);
 			//if(littleEndian) SendDlgItemMessage(hDlg, IDC_ENDIAN, BM_SETCHECK, BST_CHECKED, 0);
 
 			RamWatchAccels = LoadAccelerators(hInst, MAKEINTRESOURCE(IDR_ACCELERATOR1));
@@ -923,7 +994,7 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 					Item->item.state = 0;
 					Item->item.iImage = 0;
 					const unsigned int iNum = Item->item.iItem;
-					static char num[11];
+					static char num[64];
 					switch(Item->item.iSubItem)
 					{
 						case 0:
@@ -931,18 +1002,10 @@ LRESULT CALLBACK RamWatchProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 							Item->item.pszText = num;
 							return true;
 						case 1: {
-							int i = rswatches[iNum].CurValue;
+							RSVal rsval = rswatches[iNum].CurValue;
 							int t = rswatches[iNum].Type;
 							int size = rswatches[iNum].Size;
-							const char* formatString = ((t=='s') ? "%d" : (t=='u') ? "%u" : (size=='d' ? "%08X" : size=='w' ? "%04X" : "%02X"));
-							switch(size)
-							{
-								case 'b':
-								default: sprintf(num, formatString, t=='s' ? (char)(i&0xff) : (unsigned char)(i&0xff)); break;
-								case 'w': sprintf(num, formatString, t=='s' ? (short)(i&0xffff) : (unsigned short)(i&0xffff)); break;
-								case 'd': sprintf(num, formatString, t=='s' ? (long)(i&0xffffffff) : (unsigned long)(i&0xffffffff)); break;
-							}
-
+							rsval.print(num, size, t);
 							Item->item.pszText = num;
 						}	return true;
 						case 2:
