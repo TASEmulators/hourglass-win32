@@ -26,12 +26,45 @@
 //#define MAX_RAM_SIZE (0x112000)
 //#define MAX_RAM_SIZE (0xD2000)
 
+struct RSVal
+{
+	RSVal() { v.i = 0; t = t_i; }
+	RSVal(int i) { v.i = i; t = t_i; }
+	RSVal(unsigned long i) { v.i = i; t = t_i; }
+	RSVal(long long ll) { v.ll = ll; t = t_ll; }
+	RSVal(unsigned long long ll) { v.ll = ll; t = t_ll; }
+	RSVal(float f) { v.f = f; t = t_f; }
+	RSVal(double d) { v.d = d; t = t_d; }
+	RSVal(const RSVal& copy) { v = copy.v; t = copy.t; }
 
-extern char rs_type_size;
+	template<typename RV>
+	operator RV () const
+	{
+		if(t==t_i) return RV(v.i);
+		if(t==t_ll) return RV(v.ll);
+		if(t==t_f) return RV(v.f);
+		if(t==t_d) return RV(v.d);
+		//__assume(0);
+		return RV();
+	}
+
+	bool CheckBinaryEquality(const RSVal& r) const
+	{
+		if(v.i32s.i1 != r.v.i32s.i1) return false;
+		if(t != t_ll && t != t_d && r.t != t_ll && r.t != t_d) return true;
+		return (v.i32s.i2 == r.v.i32s.i2);
+	}
+
+	union { int i; long long ll; float f; double d; struct {int i1; int i2;} i32s; } v;
+	enum Type { t_i, t_ll, t_f, t_d, } t;
+
+	bool print(char* output, char sizeTypeID, char typeID);
+	bool scan(const char* input, char sizeTypeID, char typeID);
+};
+
 extern int ResultCount;
 typedef unsigned int HWAddressType;
 
-unsigned int sizeConv(unsigned int index,char size, char *prevSize = &rs_type_size, bool usePrev = false);
 unsigned int GetRamValue(unsigned int Addr,char Size);
 void prune(char Search, char Operater, char Type, int Value, int OperatorParameter);
 void CompactAddrs();
@@ -40,12 +73,9 @@ void signal_new_frame();
 void signal_new_size();
 void UpdateRamSearchTitleBar(int percent = 0);
 void SetRamSearchUndoType(HWND hDlg, int type);
-unsigned int ReadValueAtHardwareAddress(HWAddressType address, unsigned int size);
-bool WriteValueAtHardwareAddress(HWAddressType address, unsigned int value, unsigned int size, bool hookless=false);
+RSVal ReadValueAtHardwareAddress(HWAddressType address, char sizeTypeID, char typeID);
+bool WriteValueAtHardwareAddress(HWAddressType address, RSVal value, char sizeTypeID, char typeID, bool hookless=false);
 bool IsHardwareAddressValid(HWAddressType address);
-extern int curr_ram_size;
-extern bool noMisalign;
-//extern bool littleEndian;
 
 void ResetResults();
 void CloseRamWindows(); //Close the Ram Search & Watch windows when rom closes

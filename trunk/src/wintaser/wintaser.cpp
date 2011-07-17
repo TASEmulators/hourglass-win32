@@ -6257,6 +6257,19 @@ void SendTrustedRangeInfos(HANDLE hProcess)
 	WriteProcessMemory(hProcess, remoteTrustedRangeInfos, &infos, sizeof(infos), &bytesWritten);
 }
 
+bool IsInRange(DWORD address, const MODULEINFO& range)
+{
+	return (DWORD)((DWORD)address - (DWORD)range.lpBaseOfDll) < (DWORD)(range.SizeOfImage);
+}
+bool IsInNonCurrentYetTrustedAddressSpace(DWORD address)
+{
+	int count = trustedModuleInfos.size();
+	for(int i = 0; i < count; i++)
+		if(IsInRange(address, trustedModuleInfos[i].mi))
+			return true;
+	return (address == 0);
+}
+
 DWORD CalculateModuleSize(LPVOID hModule, HANDLE hProcess)
 {
 	// as noted below, I can't use GetModuleInformation here,
@@ -6836,7 +6849,8 @@ restartgame:
 							char comment[256];
 							sscanf(pstr,"%08X,%c,%c,%s",&(auto_watch.Address),&(auto_watch.Size),&(auto_watch.Type),comment);
 							auto_watch.WrongEndian=false;
-							InsertWatch(auto_watch,comment);							
+							if(IsHardwareAddressValid(auto_watch.Address))
+								InsertWatch(auto_watch,comment);							
 						}
 						else if(MessagePrefixMatch("UNWATCH")) 
 						{
