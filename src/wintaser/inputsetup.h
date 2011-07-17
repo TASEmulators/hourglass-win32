@@ -1,3 +1,6 @@
+/*  Copyright (C) 2011 nitsuja and contributors
+    Hourglass is licensed under GPL v2. Full notice is in COPYING.txt. */
+
 #ifndef INPUTSETUP_H_INCL
 #define INPUTSETUP_H_INCL
 

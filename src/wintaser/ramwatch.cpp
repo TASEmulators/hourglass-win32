@@ -1,3 +1,6 @@
+/*  Copyright (C) 2011 nitsuja and contributors
+    Hourglass is licensed under GPL v2. Full notice is in COPYING.txt. */
+
 #if !defined(RAMWATCH_C_INCL) && !defined(UNITY_BUILD)
 #define RAMWATCH_C_INCL
 
