@@ -1,0 +1,2 @@
+#define SRCVERSION $WCREV$
+#define SRCVERSIONSTRING "$WCREV$"

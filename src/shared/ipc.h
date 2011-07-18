@@ -33,6 +33,7 @@ struct TasFlags
 	int allowLoadInstalledDlls, allowLoadUxtheme;
 	int storeVideoMemoryInSavestates;
 	int appLocale;
+	unsigned int movieVersion;
 	LogCategoryFlag includeLogFlags;
 	LogCategoryFlag excludeLogFlags;
 #ifdef _USRDLL
@@ -112,9 +113,5 @@ struct TrustedRangeInfos
 #ifndef SUCCESSFUL_EXITCODE
 #define SUCCESSFUL_EXITCODE 4242
 #endif
-
-// at a minimum, this should be incremented whenever a change is made
-// that requires the DLL and EXE to be updated together.
-#define SRCDLLVERSION 46
 
 #endif // IPC_H_INCL

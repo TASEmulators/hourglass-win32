@@ -4,6 +4,7 @@
 	Version="9.00"
 	Name="wintaser"
 	ProjectGUID="{3B2A79FF-8BCF-43F7-B16D-82235017A1EB}"
+	RootNamespace="wintaser"
 	Keyword="Win32Proj"
 	TargetFrameworkVersion="131072"
 	>
@@ -25,6 +26,9 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
+				ExcludedFromBuild="true"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -41,7 +45,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
@@ -104,6 +108,8 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -125,7 +131,7 @@
 				FavorSizeOrSpeed="2"
 				OmitFramePointers="true"
 				EnableFiberSafeOptimizations="true"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="WIN32;NDEBUG;_WINDOWS;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1"
 				RuntimeLibrary="0"
 				ForceConformanceInForLoopScope="true"
@@ -188,6 +194,9 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
+				ExcludedFromBuild="true"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -204,7 +213,7 @@
 			<Tool
 				Name="VCCLCompilerTool"
 				Optimization="0"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="UNITY_BUILD;WIN32;_DEBUG;_WINDOWS;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1"
 				BasicRuntimeChecks="3"
 				RuntimeLibrary="1"
@@ -267,6 +276,8 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -288,7 +299,7 @@
 				FavorSizeOrSpeed="2"
 				OmitFramePointers="true"
 				EnableFiberSafeOptimizations="true"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="UNITY_BUILD;WIN32;NDEBUG;_WINDOWS;_CRT_SECURE_NO_WARNINGS;PSAPI_VERSION=1"
 				RuntimeLibrary="0"
 				ForceConformanceInForLoopScope="true"
