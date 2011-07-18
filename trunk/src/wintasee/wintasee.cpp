@@ -18,6 +18,7 @@
 #include <vector>
 #include <algorithm>
 
+#include "svnrev.h" // defines SRCVERSION number
 
 #ifdef UNITY_BUILD
 #undef UNITY_BUILD
@@ -1602,8 +1603,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		SoundDllMainInit();
 		ModuleDllMainInit();
 
-		// in case the TASer tool needs to single out a version of this DLL for some reason
-		cmdprintf("SRCDLLVERSION: %d", SRCDLLVERSION); // must send before the DLLVERSION
+		cmdprintf("SRCDLLVERSION: %d", SRCVERSION); // must send before the DLLVERSION
 		cmdprintf("DLLVERSION: %d.%d, %s", 0, __LINE__, __DATE__);
 
 		// tell it where to put commands
@@ -1693,6 +1693,8 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 			//	if(SetCPGlobalType SetCPGlobal = (SetCPGlobalType)GetProcAddress(kernel32, "SetCPGlobal"))
 			//		SetCPGlobal(LocaleToCodePage(tasflags.appLocale));
 		}
+
+		debugprintf("version = %d, movie version = %d\n", SRCVERSION, tasflags.movieVersion);
 
 		detTimer.Initialize(tasflags.initialTime);
 		nonDetTimer.Initialize(tasflags.initialTime);

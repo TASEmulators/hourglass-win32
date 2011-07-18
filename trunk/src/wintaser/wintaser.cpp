@@ -16,6 +16,7 @@
 #include <memory.h>
 #include <tchar.h>
 //#include "stdafx.h"
+#include "svnrev.h" // defines SRCVERSION number
 #include "Resource.h"
 #include "trace/ExtendedTrace.h"
 #include "inject/IATModifier.h"
@@ -31,6 +32,7 @@
 #include <string>
 #include <algorithm>
 #include <aclapi.h>
+#include <assert.h>
 
 #include <shellapi.h>
 #pragma comment(lib, "shell32.lib")
@@ -76,8 +78,7 @@ FILE* debuglogfile = NULL;
 
 CRITICAL_SECTION g_debugPrintCS;
 
-//int debugPrintMode = 1; // FIXME: change this back to 2 when I'm done testing something
-int debugPrintMode = 2; // TODO: add a way to turn this down in the gui for a speedup (disabling the log file, at least)
+int debugPrintMode = 2;
 
 //#define ANONYMIZE_PRINT_NUMS // for simplifying diffs (debugging)
 
@@ -528,11 +529,41 @@ private:
 
 
 
+
+// not the most thought-out movie format
+struct MovieFrame
+{
+	unsigned char heldKeyIDs [8];
+};
+#include <vector>
+struct Movie
+{
+	std::vector<MovieFrame> frames;
+	int currentFrame;
+	int rerecordCount;
+	char keyboardLayoutName [KL_NAMELENGTH]; // "00000409" for standard US layout
+	int desyncDetectionTimerValues [16];
+	int version;
+	// note: these aren't the only things in the movie file format.
+	// see SaveMovieToFile or LoadMovieFromFile for the rest.
+	Movie() : currentFrame(0), rerecordCount(0), version(SRCVERSION)
+	{
+		for(int i = 0; i < KL_NAMELENGTH; i++)
+			keyboardLayoutName[i] = 0;
+	}
+};
+static Movie movie;
+
+
+
+
 // requires both buffers given to be at least MAX_PATH characters in size.
 // it is allowed for both arguments to point at the same buffer.
 char* NormalizePath(char* output, const char* path)
 {
-	DWORD len = GetFullPathNameA(path, MAX_PATH, output, NULL);
+	DWORD len = 0;
+	if(!(movie.version >= 40 && movie.version < 53))
+		len = GetFullPathNameA(path, MAX_PATH, output, NULL);
 	if(len && len < MAX_PATH)
 		GetLongPathNameA(output, output, MAX_PATH); // GetFullPathName won't always convert short filenames to long filenames
 	else if(path != output)
@@ -628,28 +659,6 @@ void SetThreadSuspendCount(HANDLE hThread, int count)
 }
 
 
-// not the most thought-out movie format
-struct MovieFrame
-{
-	unsigned char heldKeyIDs [8];
-};
-#include <vector>
-struct Movie
-{
-	std::vector<MovieFrame> frames;
-	int currentFrame;
-	int rerecordCount;
-	char keyboardLayoutName [KL_NAMELENGTH]; // "00000409" for standard US layout
-	int desyncDetectionTimerValues [16];
-	// note: these aren't the only things in the movie file format.
-	// see SaveMovieToFile or LoadMovieFromFile for the rest.
-	Movie() : currentFrame(0), rerecordCount(0)
-	{
-		for(int i = 0; i < KL_NAMELENGTH; i++)
-			keyboardLayoutName[i] = 0;
-	}
-};
-static Movie movie;
 
 
 
@@ -924,7 +933,11 @@ static void SaveMovieToFile(const char* filename)
 
 	fwrite(&movie.desyncDetectionTimerValues[0], 16, 4, file);
 
+	int version = movie.version;
+	fwrite(&version, 4, 1, file);
+
 	// write remaining padding before movie data
+	assert(ftell(file) <= 1024-4);
 	while(ftell(file) < 1024)
 		fputc(0, file);
 
@@ -973,10 +986,19 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 
 	fread(&movie.desyncDetectionTimerValues[0], 16, 4, file);
 
+	int version = 0;
+	fread(&version, 4, 1, file);
+	if(version == 0)
+		if(movie.desyncDetectionTimerValues[0])
+			version = 51; // or 49
+		else
+			version = 39; // or older
+
 	bool failed = false;
 	if(length > 0 && magic == MAGIC)
 	{
 		// skip remaining padding before movie data
+		assert(ftell(file) <= 1024-4);
 		fseek(file, 1024, SEEK_SET);
 
 		movie.currentFrame = 0;
@@ -990,6 +1012,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		movie.currentFrame = 0;
 		movie.rerecordCount = 0;
 		movie.frames.clear();
+		movie.version = SRCVERSION;
 		failed = true;
 	}
 
@@ -1070,6 +1093,72 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 			if(result == IDNO)
 				return -1;
 		}
+	}
+
+	if(playback && !forPreview && version != SRCVERSION
+#ifdef _DEBUG
+		// SubWCRev doesn't run by default in debug builds,
+		// so ignore it if the SRCVERSION number is outdated
+		// (or -1, which means unknown and is assumed to be later than any other version).
+		&& !(SRCVERSION < version)
+#endif
+		)
+	{
+		char mvvs [64];
+		if(version == 51)
+			strcpy(mvvs, "r49 or r51");
+		else if(version == 39)
+			strcpy(mvvs, "r39 or older");
+		else if(version == -1)
+			strcpy(mvvs, "unknown version (r57 or later)");
+		else
+			sprintf(mvvs, "r%d", version);
+
+		int myVersion = SRCVERSION;
+		char myvs [64];
+		if(SRCVERSION == -1)
+			strcpy(myvs, "unknown version (r57 or later)");
+		else
+		{
+			sprintf(myvs, "r%d", myVersion);
+#ifdef _DEBUG
+			strcat(myvs, " (maybe)");
+#endif
+		}
+
+		bool probablyDesync = false;
+		if(version > myVersion+7 || version < myVersion-40) // not very scientific here
+			probablyDesync = true;
+		// in the future: if it's known whether certain versions sync with the current version, set probablyDesync depending on the version numbers.
+		// and maybe add more specific warning messages, if warranted
+
+		char str [1024];
+		sprintf(str,
+			"This movie was recorded using a different version of Hourglass.\n"
+			"\n"
+			"Movie's version: %s\n"
+			"Your version:     %s\n"
+			"\n"
+			"%s\n"
+			"%s\n"
+			"\n"
+			"Click Yes if you want to try playing this movie %s,\n"
+			"Or click No to play this movie if you plan to convert it to the %s version.\n",
+			mvvs, myvs,
+			probablyDesync?"This could easily cause the movie to desync.":"This could cause desyncs if there were sync changes in-between those versions.",
+			(myVersion>version)?"If this doesn't work, you might want to temporarily use an older version of Hourglass.":"You should probably switch to a newer version of Hourglass.",
+			(myVersion>version)?"as it was":"normally",
+			(version>=0)?((myVersion>=0)?((myVersion>version)?"new":"old"):"mystery"):"current"
+		);
+		int result = CustomMessageBox(str, "Movie Version", MB_YESNO | (probablyDesync?MB_ICONWARNING:MB_ICONQUESTION) | MB_DEFBUTTON1);
+		if(result == IDYES)
+			movie.version = version;
+		else
+			movie.version = SRCVERSION;
+	}
+	else
+	{
+		movie.version = version;
 	}
 
 	return 1;
@@ -1372,10 +1461,10 @@ void ReceiveKeyboardLayout(__int64 pointerAsInt, HANDLE hProcess)
 static bool gotSrcDllVersion = false;
 void CheckSrcDllVersion(int version)
 {
-	if((DWORD)version != (DWORD)SRCDLLVERSION)
+	if((DWORD)version != (DWORD)SRCVERSION)
 	{
 		const char* str;
-		if((DWORD)version > (DWORD)SRCDLLVERSION)
+		if((DWORD)version > (DWORD)SRCVERSION)
 			str = "Wrong version detected: This hourglass.exe is too old compared to wintasee.dll.\nPlease make sure you have extracted Hourglass properly.\nThe files that came with hourglass.exe must stay together with it.";
 		else
 			str = "Wrong version detected: wintasee.dll is too old compared to this hourglass.exe.\nPlease make sure you have extracted Hourglass properly.\nThe files that came with hourglass.exe must stay together with it.";
@@ -2119,6 +2208,7 @@ void SendTASFlags()
 		allowLoadInstalledDlls, allowLoadUxtheme,
 		storeVideoMemoryInSavestates,
 		appLocale,
+		movie.version,
 		includeLogFlags|traceLogFlags,
 		excludeLogFlags,
 	};
@@ -3596,6 +3686,7 @@ static PAVISTREAM aviCompressedStream = NULL;
 //static PAVISTREAM aviCompressedSoundStream = NULL;
 static int curAviWidth=0, curAviHeight=0, curAviFps=0;
 int aviFrameCount = 0, aviEmptyFrameCount = 0;
+static bool oldIsBasicallyEmpty = false;
 static int aviSoundSampleCount = 0;
 int aviSoundFrameCount = 0;
 static double aviSoundSecondsCount = 0;
@@ -3606,6 +3697,9 @@ static CRITICAL_SECTION s_fqvCS;
 
 void CloseAVI()
 {
+	if(aviStream)
+		oldIsBasicallyEmpty |= (aviFrameCount-aviEmptyFrameCount < 5 && aviSoundFrameCount < 15);
+
 	aviMode = 0;
 	aviSplitCount = 0;
 	aviSplitDiscardCount = 0;
@@ -3660,7 +3754,6 @@ bool OpenAVIFile(int width, int height, int bpp, int fps)
 	int oldAviMode = aviMode;
 	int oldAviSplitCount = aviSplitCount;
 	int oldAviSplitDiscardCount = aviSplitDiscardCount;
-	bool oldIsBasicallyEmpty = (aviFrameCount-aviEmptyFrameCount < 5 && aviSoundFrameCount < 15); // before CloseAVI zeroes these values out
 	CloseAVI();
 	aviMode = oldAviMode;
 	aviSplitCount = oldAviSplitCount;
@@ -3709,6 +3802,8 @@ bool OpenAVIFile(int width, int height, int bpp, int fps)
 			filename = avifilename2;
 		}
 	}
+
+	oldIsBasicallyEmpty = false;
 
 	debugprintf(__FUNCTION__ "(filename=\"%s\", width=%d, height=%d, bpp=%d, fps=%d)\n", filename, width, height, bpp, fps);
 
@@ -6788,7 +6883,6 @@ restartgame:
 						{
 							SleepFrameBoundary(pstr, de.dwThreadId);
 #if 0
-							// FIXME TEMP TESTING
 							// print the callstack of the thread
 							std::map<DWORD,ThreadInfo>::iterator found = hGameThreads.find(de.dwThreadId);
 							if(found != hGameThreads.end())
@@ -7346,10 +7440,6 @@ restartgame:
 			{
 				DWORD threadId = iter->first;
 				ThreadInfo threadInfo = iter->second;
-
-				//if(threadInfo.waitingCount != 1)
-				//	continue; // TEMP TESTING FIXME
-
 				HANDLE hThread = threadInfo.handle;
 				int suspendCount = GetThreadSuspendCount(threadInfo.handle);
 				ASSERT(suspendCount == GetThreadSuspendCount(threadInfo.handle));
@@ -7390,7 +7480,7 @@ restartgame:
 					char filename [MAX_PATH+1];
 
 					// hFile is NULL sometimes...
-					if(!GetFileNameFromProcessHandle(de.u.CreateProcessInfo.hProcess, filename))
+					if((movie.version >= 0 && movie.version < 40) || !GetFileNameFromProcessHandle(de.u.CreateProcessInfo.hProcess, filename))
 						GetFileNameFromFileHandle(de.u.CreateProcessInfo.hFile, filename);
 
 //					debugprintf("CREATE_PROCESS_DEBUG_EVENT: 0x%X\n", de.u.CreateProcessInfo.lpBaseOfImage);
@@ -7410,7 +7500,7 @@ restartgame:
 ////						SuspendThread(de.u.CreateProcessInfo.hThread);
 //					}
 
-					bool nullFile = !de.u.CreateProcessInfo.hFile;
+					bool nullFile = !de.u.CreateProcessInfo.hFile && !(movie.version >= 0 && movie.version < 40);
 					if(nullFile)
 						de.u.CreateProcessInfo.hFile = CreateFile(filename, GENERIC_READ, FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
@@ -7902,10 +7992,6 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			{
 				DWORD threadId = iter->first;
 				ThreadInfo threadInfo = iter->second;
-
-				//if(threadInfo.waitingCount != 1)
-				//	continue; // TEMP TESTING FIXME
-
 				HANDLE hThread = threadInfo.handle;
 				int suspendCount = GetThreadSuspendCount(threadInfo.handle);
 				ASSERT(suspendCount == GetThreadSuspendCount(threadInfo.handle));
@@ -8166,7 +8252,22 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
     BOOL rv = TRUE;  
     switch(message)  
     {  
-        case WM_INITDIALOG:  
+        case WM_INITDIALOG:
+			if(SRCVERSION >= 0)
+			{
+				char title [256];
+				sprintf(title, "Hourglass r%d", SRCVERSION);
+#ifdef _DEBUG
+				strcat(title, "? (debug)");
+#endif
+				SetWindowTextA(hDlg, title);
+			}
+#ifdef _DEBUG
+			else
+			{
+				SetWindowTextA(hDlg, "Hourglass (debug)");
+			}
+#endif
             break;
 
 		case WM_SHOWWINDOW:

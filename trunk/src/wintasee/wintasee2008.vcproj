@@ -26,6 +26,9 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
+				ExcludedFromBuild="true"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -43,7 +46,7 @@
 				Name="VCCLCompilerTool"
 				AdditionalOptions="/Oy-"
 				Optimization="0"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="WIN32;_DEBUG;_WINDOWS;_USRDLL;WINTASDLL_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WIN32_WINNT=0x0500;WINVER=0x0501"
 				BasicRuntimeChecks="0"
 				RuntimeLibrary="1"
@@ -109,6 +112,8 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -131,7 +136,7 @@
 				FavorSizeOrSpeed="2"
 				OmitFramePointers="false"
 				EnableFiberSafeOptimizations="true"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="WIN32;NDEBUG;_WINDOWS;_USRDLL;WINTASDLL_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WIN32_WINNT=0x0500;WINVER=0x0501"
 				RuntimeLibrary="0"
 				BufferSecurityCheck="false"
@@ -198,6 +203,9 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
+				ExcludedFromBuild="true"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -215,7 +223,7 @@
 				Name="VCCLCompilerTool"
 				AdditionalOptions="/Oy-"
 				Optimization="0"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="UNITY_BUILD;WIN32;_DEBUG;_WINDOWS;_USRDLL;WINTASDLL_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WIN32_WINNT=0x0500;WINVER=0x0501"
 				BasicRuntimeChecks="0"
 				RuntimeLibrary="1"
@@ -282,6 +290,8 @@
 			>
 			<Tool
 				Name="VCPreBuildEventTool"
+				Description="ensuring svnrev.h is up to date"
+				CommandLine="..\shared\SubWCRev\SubWCRev.bat"
 			/>
 			<Tool
 				Name="VCCustomBuildTool"
@@ -304,7 +314,7 @@
 				FavorSizeOrSpeed="2"
 				OmitFramePointers="false"
 				EnableFiberSafeOptimizations="true"
-				AdditionalIncludeDirectories=""
+				AdditionalIncludeDirectories="..\shared;..\shared\SubWCRev"
 				PreprocessorDefinitions="UNITY_BUILD;WIN32;NDEBUG;_WINDOWS;_USRDLL;WINTASDLL_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WIN32_WINNT=0x0500;WINVER=0x0501"
 				RuntimeLibrary="0"
 				BufferSecurityCheck="false"
