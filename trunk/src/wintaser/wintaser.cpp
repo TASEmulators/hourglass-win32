@@ -442,8 +442,12 @@ DWORD WINAPI InjectDLLThreadFunc(LPVOID lpParam)
 	if(exitCode == 0)
 	{
 		terminateRequest = true;
-		debugprintf("Injection failed...\n");
-		CustomMessageBox("Injection failed...\nYou can (hopefully) find more information in the debug log .txt file.", "Error", MB_OK | MB_ICONERROR);
+		if(hProcess != NULL) {
+			debugprintf("Injection failed...\n");
+			CustomMessageBox("Injection failed...\nYou can (hopefully) find more information in the debug log .txt file.", "Error", MB_OK | MB_ICONERROR);
+		} else {
+			CustomMessageBox("The game could not be launched...\nYou can (hopefully) find more information in the debug log .txt file.", "Error", MB_OK | MB_ICONERROR);
+		}
 	}
 	else
 		debugprintf("Injection probably succeeded (0x%X)...\n", exitCode);
@@ -6713,7 +6717,17 @@ restartgame:
 
 	if(!created)
 	{
-		PrintLastError("CreateProcess", GetLastError());
+		DWORD error = GetLastError();
+		PrintLastError("CreateProcess", error);
+		if(error == ERROR_ELEVATION_REQUIRED)
+		{
+			char str [1024];
+			sprintf(str,
+				"ERROR: Admin privileges are required to run \"%s\" on this system.\n"
+				"Hourglass doesn't have high enough privileges to launch the game.\n"
+				"Try closing Hourglass and then opening it with \"Run as administrator\".", exefilename);
+			CustomMessageBox(str, "Permission Denied", MB_OK|MB_ICONERROR);
+		}
 	}
 
 	hGameProcess = processInfo.hProcess;
@@ -6825,7 +6839,7 @@ restartgame:
 			{
 			case OUTPUT_DEBUG_STRING_EVENT:
 				{
-					HANDLE hProcess = GetProcessHandle(processInfo,de); 
+					HANDLE hProcess = hGameProcess;//GetProcessHandle(processInfo,de); 
 					char str[4096];
 					OUTPUT_DEBUG_STRING_INFO dsi = de.u.DebugString;
 					int len = dsi.nDebugStringLength;
