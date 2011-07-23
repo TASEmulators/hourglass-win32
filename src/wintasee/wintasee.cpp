@@ -346,7 +346,7 @@ bool IsInAnyTrustedAddressSpace(DWORD address)
 	return (address == 0);
 }
 
-bool IsNearStackTop(DWORD address)
+__declspec(noinline) bool IsNearStackTop(DWORD address)
 {
 	DWORD top = (DWORD)&top;
 	DWORD under = address - top;
