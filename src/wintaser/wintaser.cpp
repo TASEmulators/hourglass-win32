@@ -6838,6 +6838,7 @@ restartgame:
 
 	started = true;
 	CheckDialogChanges(0);
+	EnableWindow(GetDlgItem(hWnd, IDC_BUTTON_STOP), true);
 	mainMenuNeedsRebuilding = true;
 	ResumeThread(processInfo.hThread);
 
@@ -9191,9 +9192,10 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						playback = false;
 						nextLoadRecords = true;
 						fastforward = false;
+						started = true; CheckDialogChanges(-1); started = false;
+						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_STOP), false);
 						GetWindowText(GetDlgItem(hWnd, IDC_EDIT_COMMANDLINE), commandline, ARRAYSIZE(commandline));
 						debuggerThread = CreateThread(NULL, 0, DebuggerThreadFunc, NULL, 0, NULL);
-						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_STOP), true);
 					}
 					break;
 
@@ -9208,9 +9210,10 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_PLAY), false);
 						playback = true;
 						nextLoadRecords = false;
+						started = true; CheckDialogChanges(-1); started = false;
+						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_STOP), false);
 						GetWindowText(GetDlgItem(hWnd, IDC_EDIT_COMMANDLINE), commandline, ARRAYSIZE(commandline));
 						debuggerThread = CreateThread(NULL, 0, DebuggerThreadFunc, NULL, 0, NULL);
-						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_STOP), true);
 					}
 					break;
 
