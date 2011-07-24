@@ -6751,10 +6751,20 @@ restartgame:
 	if(slash)
 		*slash = 0;
 
+	char* cmdline = NULL;
+	if(movie.version == 60)
+		cmdline = commandline;
+	else if(movie.version >= 64)
+	{
+		static char tempcmdline [ARRAYSIZE(commandline)+MAX_PATH+4];
+		sprintf(tempcmdline, "\"%s\" %s", exefilename, commandline);
+		cmdline = tempcmdline;
+	}
+
 	debugprintf("creating process \"%s\"...\n", exefilename);
 	//debugprintf("initial directory = \"%s\"...\n", initialDirectory);
 	BOOL created = CreateProcess(exefilename, // application name
-		(movie.version >= 60) ? commandline : NULL, // commandline arguments
+		cmdline, // commandline arguments
 		NULL, // process attributes (e.g. security descriptor)
 		NULL, // thread attributes (e.g. security descriptor)
 		FALSE, // inherit handles
