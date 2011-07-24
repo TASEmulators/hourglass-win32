@@ -9,91 +9,110 @@
 #include "global.h"
 #include "intercept.h"
 #include "../shared/asm.h"
-
-//#pragma optimize( "", off )
+#include "../shared/ipc.h"
 
 BOOL InterceptGlobalFunction(FARPROC dwAddressToIntercept, FARPROC dwReplaced, FARPROC dwTrampoline, bool trampolineOnly, BOOL rvOnSkip)
 {
 	if(!dwAddressToIntercept)
 		return FALSE;
 
-	int i; 
-	DWORD dwOldProtect; 
+	enum { JMP_REL32 = 0xE9 };
 
-	BYTE *pbTargetCode = (BYTE *) dwAddressToIntercept; 
-	BYTE *pbReplaced = (BYTE *) dwReplaced; 
-	BYTE *pbTrampoline = (BYTE *) dwTrampoline; 
+	BYTE* pTargetHead = (BYTE*)dwAddressToIntercept;
+	BYTE* pTargetTail = pTargetHead;
+	BYTE* pTramp = (BYTE*)dwTrampoline;
+	BYTE* pHook = (BYTE*)dwReplaced;
 
-	// if the target is already an absolute jump (at least, a jmp rel32), then retarget to where it jumps to
-	if(*pbTargetCode == 0xe9)
+	// trampolines work by running a copy of the first few bytes of the target function
+	// and then jumping to the remainder of the target function.
+	// this totally breaks down if the first few bytes of the target function is a jump.
+	// so, the first thing we do is detect if the target starts with a jump,
+	// and if so, we follow where the jump goes instead of hooking the target directly.
+	if(tasflags.movieVersion >= 65)
 	{
-		debugprintf("rejump detected in target (0x%X), attempting to remove...\n", pbTargetCode);
-		int diff = *(DWORD*)(pbTargetCode+1) + 5;
-		pbTargetCode += diff;
-		dwAddressToIntercept = (FARPROC)pbTargetCode;
+		for(int i = 0; *pTargetTail == JMP_REL32; i++)
+		{
+			int diff = *(DWORD*)(pTargetTail+1) + 5;
+			pTargetTail += diff;
+			if(pTargetTail == pHook)
+			{
+				if(i == 0)
+					debugprintf("already hooked. skipping.\n");
+				else
+					debugprintf("already hooked (from 0x%X to 0x%X), although the hook chain is longer than expected. skipping.\n", pTargetTail-diff, pTargetTail);
+				return rvOnSkip;
+			}
+			else
+			{
+				if(i < 64)
+					debugprintf("rejump detected in target (from 0x%X to 0x%X). following chain...\n", pTargetTail-diff, pTargetTail);
+				else
+				{
+					debugprintf("hook chain is too long. target function jumps to itself? skipping.\n");
+					return rvOnSkip;
+				}
+			}
+		}
+
+		if(pTargetHead == pHook || pTramp == pHook || pTargetHead == pTramp)
+		{
+			debugprintf("bad input? target=0x%X, hook=0x%X, tramp=0x%X. skipping hook.\n", pTargetHead, pHook, pTramp);
+			return rvOnSkip;
+		}
 	}
-	if(*pbTrampoline == 0xe9)
+	else // old version. if avast! is installed, this results in an incorrect trampoline which will crash the game.
 	{
-		//debugprintf("rejump detected in trampoline (0x%X), attempting to remove...\n", pbTrampoline);
-		//int diff = *(DWORD*)(pbTrampoline+1) + 5;
-		//pbTrampoline += diff;
-		//dwTrampoline = (FARPROC)pbTrampoline;
-		debugprintf("rejump detected in trampoline (0x%X), so someone else overwrote our code. giving up.\n", pbTrampoline);
+		if(*pTargetHead == JMP_REL32)
+		{
+			int diff = *(DWORD*)(pTargetHead+1) + 5;
+			pTargetHead += diff;
+			debugprintf("rejump detected (from 0x%X to 0x%X). attempting to remove...\n", dwAddressToIntercept, pTargetHead);
+			dwAddressToIntercept = (FARPROC)pTargetHead;
+		}
+		pTargetTail = pTargetHead;
+		if(pTargetHead == pHook)
+		{
+			debugprintf("already hooked (0x%X). skipping.\n", pTargetHead);
+			return rvOnSkip;
+		}
+	}
+
+	debuglog(LCF_HOOK, "want to hook 0x%X to call 0x%X, and want trampoline 0x%X to call 0x%X\n", pTargetHead, pHook, pTramp, pTargetTail);
+
+	if(*pTramp == JMP_REL32)
+	{
+		int diff = *(DWORD*)(pTramp+1) + 5;
+		debugprintf("rejump detected in trampoline (from 0x%X to 0x%X). giving up.\n", pTramp, pTramp+diff);
 		return rvOnSkip;
 	}
 
-	if(pbTargetCode == pbReplaced)
-	{
-		debugprintf("already has same trampoline (0x%X). skipping.\n", pbTargetCode);
-		return rvOnSkip;
-	}
-
-	verbosedebugprintf("pbTargetCode=0x%X, pbReplaced=0x%X, pbTrampoline=0x%X\n", pbTargetCode, pbReplaced, pbTrampoline);
-
-	verbosedebugprintf("calculating instruction lengths...\n");
 	// we'll have to overwrite 5 bytes, which means we have to backup at least 5 bytes (up to next instruction boundary)
 	int offset = 0;
 	while(offset < 5)
-		offset += instructionLength(pbTargetCode + offset);
-	verbosedebugprintf("instruction target offset = 0x%X...\n", offset);
+		offset += instructionLength(pTargetTail + offset);
 
-	// Change the protection of the trampoline region 
-	// so that we can overwrite the first 5 + offset bytes. 
-	verbosedebugprintf("VirtualProtect(0x%X, 0x%X, 0x%X)\n", dwTrampoline, 5+offset, PAGE_EXECUTE_READWRITE);
-	BOOL protret = VirtualProtect((void *) dwTrampoline, 5+offset, PAGE_EXECUTE_READWRITE, &dwOldProtect); 
-	verbosedebugprintf("protect returned 0x%X, GetLastError() = 0x%X", protret, GetLastError());
-	for (i=0;i<offset;i++) 
-	{
-		verbosedebugprintf("copying to trampoline byte %d...\n", i);
-		*pbTrampoline++ = *pbTargetCode++; 
-	}
-	pbTargetCode = (BYTE *) dwAddressToIntercept; 
+	DWORD dwOldProtect;
 
-	// Insert unconditional jump in the trampoline. 
-	verbosedebugprintf("inserting unconditional jump rel32 at 0x%X...\n", pbTrampoline);
-	*pbTrampoline++ = 0xE9;        // jump rel32 
-	verbosedebugprintf("copying jump target address 0x%X...\n", (int)((pbTargetCode+offset) - (pbTrampoline + 4)));
-	*((signed int *)(pbTrampoline)) = (int)((pbTargetCode+offset) - (pbTrampoline + 4)); 
-	verbosedebugprintf("VirtualProtect(0x%X, 0x%X, 0x%X)\n", dwTrampoline, 5+offset, PAGE_EXECUTE);
-	VirtualProtect((void *) dwTrampoline, 5+offset, PAGE_EXECUTE, &dwOldProtect); 
+	// in the trampoline, write the first 5+ bytes of the target function followed by a jump to our hook
+	VirtualProtect((void*)dwTrampoline, 5+offset, PAGE_EXECUTE_READWRITE, &dwOldProtect); 
+	for(int i=0; i<offset; i++) 
+		*pTramp++ = *pTargetTail++; 
+	*pTramp++ = JMP_REL32;
+	*((int*)pTramp) = (int)(pTargetTail - (pTramp + 4)); 
+	VirtualProtect((void*)dwTrampoline, 5+offset, PAGE_EXECUTE, &dwOldProtect); 
 
 	if(!trampolineOnly)
 	{
-		// Overwrite the first 5 bytes of the target function 
-		verbosedebugprintf("VirtualProtect(0x%X, 0x%X, 0x%X)\n", dwAddressToIntercept, 5, PAGE_EXECUTE_READWRITE);
-		VirtualProtect((void *) dwAddressToIntercept, 5, PAGE_EXECUTE_READWRITE, &dwOldProtect); 
-		verbosedebugprintf("inserting unconditional jump rel32 at 0x%X...\n", pbTargetCode);
-		*pbTargetCode++ = 0xE9;        // jump rel32 
-		verbosedebugprintf("copying jump target address 0x%X...\n", (int)(pbReplaced - (pbTargetCode +4)));
-		*((signed int *)(pbTargetCode)) = (int)(pbReplaced - (pbTargetCode +4)); 
-		verbosedebugprintf("VirtualProtect(0x%X, 0x%X, 0x%X)\n", dwAddressToIntercept, 5, PAGE_EXECUTE);
-		VirtualProtect((void *) dwAddressToIntercept, 5, PAGE_EXECUTE, &dwOldProtect); 
+		// overwrite the first 5 bytes of the target function with a jump to our hook
+		VirtualProtect((void*)dwAddressToIntercept, 5, PAGE_EXECUTE_READWRITE, &dwOldProtect); 
+		*pTargetHead++ = JMP_REL32;
+		*((signed int *)(pTargetHead)) = (int)(pHook - (pTargetHead +4)); 
+		VirtualProtect((void*)dwAddressToIntercept, 5, PAGE_EXECUTE, &dwOldProtect); 
 	}
 
-	// Flush the instruction cache to make sure  
-	// the modified code is executed. 
-	verbosedebugprintf("flushing instruction cache...\n");
+	// flush the instruction cache to make sure the modified code is executed
 	FlushInstructionCache(GetCurrentProcess(), NULL, NULL); 
+
 	return TRUE; 
 }
 
