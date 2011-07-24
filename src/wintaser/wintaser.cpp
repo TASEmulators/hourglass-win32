@@ -548,16 +548,17 @@ struct Movie
 	char keyboardLayoutName [KL_NAMELENGTH]; // "00000409" for standard US layout
 	int desyncDetectionTimerValues [16];
 	int version;
+	char exefname[48];
 	// note: these aren't the only things in the movie file format.
 	// see SaveMovieToFile or LoadMovieFromFile for the rest.
 	Movie() : currentFrame(0), rerecordCount(0), version(SRCVERSION)
 	{
 		for(int i = 0; i < KL_NAMELENGTH; i++)
 			keyboardLayoutName[i] = 0;
+		exefname[0] = 0;
 	}
 };
 static Movie movie;
-
 
 
 
@@ -565,8 +566,12 @@ static Movie movie;
 // it is allowed for both arguments to point at the same buffer.
 char* NormalizePath(char* output, const char* path)
 {
+	extern bool started;
+	if(movie.version >= 60 || !started)
+		while(*path == ' ')
+			path++;
 	DWORD len = 0;
-	if(!(movie.version >= 40 && movie.version < 53))
+	if(!(movie.version >= 40 && movie.version < 53) || !started)
 		len = GetFullPathNameA(path, MAX_PATH, output, NULL);
 	if(len && len < MAX_PATH)
 		GetLongPathNameA(output, output, MAX_PATH); // GetFullPathName won't always convert short filenames to long filenames
@@ -719,6 +724,7 @@ int truePause = 0;
 int onlyHookChildProcesses = 0;
 int advancePastNonVideoFrames = 0;
 bool advancePastNonVideoFramesConfigured = false;
+bool crcVerifyEnabled = true;
 int audioFrequency = 44100;
 int audioBitsPerSecond = 16;
 int audioChannels = 2;
@@ -761,6 +767,7 @@ LogCategoryFlag excludeLogFlags = LCF_NONE
 
 char moviefilename [MAX_PATH+1];
 char exefilename [MAX_PATH+1];
+char commandline [160];
 char avifilename [MAX_PATH+1];
 char thisprocessPath [MAX_PATH+1];
 char injectedDllPath [MAX_PATH+1];
@@ -940,6 +947,8 @@ static void SaveMovieToFile(const char* filename)
 	int version = movie.version;
 	fwrite(&version, 4, 1, file);
 
+	fwrite(commandline, 1, 160, file);
+
 	// write remaining padding before movie data
 	assert(ftell(file) <= 1024-4);
 	while(ftell(file) < 1024)
@@ -998,6 +1007,11 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		else
 			version = 39; // or older
 
+	char cmdline [160];
+	fread(cmdline, 1, 160, file);
+	cmdline[min(ARRAYSIZE(cmdline),ARRAYSIZE(commandline))-1] = 0;
+
+
 	bool failed = false;
 	if(length > 0 && magic == MAGIC)
 	{
@@ -1008,6 +1022,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		movie.currentFrame = 0;
 		movie.rerecordCount = (playback || forPreview) ? rerecords : 0;
 		movie.frames.resize(length);
+		strcpy(movie.exefname, exefname);
 
 		fread(&movie.frames[0], sizeof(MovieFrame), length, file);
 	}
@@ -1073,7 +1088,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		SetWindowText(GetDlgItem(hWnd, IDC_EDIT_SYSTEMCLOCK), str);
 	}
 
-	if(playback && !forPreview && crc)
+	if(playback && !forPreview && crc && crcVerifyEnabled)
 	{
 		int curcrc = CalcExeCrc();
 		if(crc != curcrc)
@@ -1131,7 +1146,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		}
 
 		bool probablyDesync = false;
-		if(version > myVersion+7 || version < myVersion-40) // not very scientific here
+		if(version > myVersion+7 || version < myVersion-40) // not very scientific here. change as needed.
 			probablyDesync = true;
 		// in the future: if it's known whether certain versions sync with the current version, set probablyDesync depending on the version numbers.
 		// and maybe add more specific warning messages, if warranted
@@ -1146,23 +1161,56 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 			"%s\n"
 			"%s\n"
 			"\n"
-			"Click Yes if you want to try playing this movie %s,\n"
-			"Or click No to play this movie if you plan to convert it to the %s version.\n",
+			"%s\n"
+			"%s\n",
 			mvvs, myvs,
 			probablyDesync?"This could easily cause the movie to desync.":"This could cause desyncs if there were sync changes in-between those versions.",
 			(myVersion>version)?"If this doesn't work, you might want to temporarily use an older version of Hourglass.":"You should probably switch to a newer version of Hourglass.",
-			(myVersion>version)?"as it was":"normally",
-			(version>=0)?((myVersion>=0)?((myVersion>version)?"new":"old"):"mystery"):"current"
+			(myVersion>version)?"Do you want to try playing the movie normally?":"Play the movie anyway?",
+			(myVersion>version)?"(\"No\" enables backward compatibility mode, but might cause problems.)":""
 		);
-		int result = CustomMessageBox(str, "Movie Version", MB_YESNO | (probablyDesync?MB_ICONWARNING:MB_ICONQUESTION) | MB_DEFBUTTON1);
-		if(result == IDYES)
-			movie.version = version;
+		int result = CustomMessageBox(str, "Movie Version", ((myVersion>version) ? MB_YESNOCANCEL : MB_YESNO) | (probablyDesync?MB_ICONWARNING:MB_ICONQUESTION) | MB_DEFBUTTON1);
+		if(myVersion>version)
+		{
+			if(result == IDYES)
+				movie.version = SRCVERSION;
+			else if(result == IDNO)
+				movie.version = version;
+			else //IDCANCEL
+				return -1;
+		}
 		else
-			movie.version = SRCVERSION;
+		{
+			if(result == IDYES)
+				movie.version = version;
+			else //IDNO
+				return -1;
+		}
 	}
 	else
 	{
 		movie.version = version;
+	}
+
+	if((playback || forPreview))
+	{
+		if(movie.version >= 60)
+		{
+			bool setCommandline = true;
+			if(playback && !forPreview && strcmp(commandline, cmdline))
+			{
+				int result = CustomMessageBox("Really start playing this movie with different command line arguments than it was recorded with?", "Play Movie", MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON2);
+				if(result == IDCANCEL)
+					return -1;
+				if(result == IDYES)
+					setCommandline = false;
+			}
+			if(setCommandline)
+				strcpy(commandline, cmdline);
+		}
+		else
+			commandline[0] = 0;
+		SetWindowText(GetDlgItem(hWnd, IDC_EDIT_COMMANDLINE), commandline);
 	}
 
 	return 1;
@@ -2765,6 +2813,7 @@ void CheckDialogChanges(int frameCount)
 			EnableWindow(GetDlgItem(hWnd, IDC_RADIO_THREAD_ALLOW), !started);
 		}
 		SendMessage(GetDlgItem(hWnd, IDC_EDIT_EXE), EM_SETREADONLY, started, 0);
+		SendMessage(GetDlgItem(hWnd, IDC_EDIT_COMMANDLINE), EM_SETREADONLY, started, 0);
 		SendMessage(GetDlgItem(hWnd, IDC_EDIT_MOVIE), EM_SETREADONLY, started, 0);
 		SendMessage(GetDlgItem(hWnd, IDC_EDIT_RERECORDS), EM_SETREADONLY, started, 0);
 		EnableWindow(GetDlgItem(hWnd, IDC_BUTTON_MOVIEBROWSE), !started);
@@ -6703,7 +6752,7 @@ restartgame:
 	debugprintf("creating process \"%s\"...\n", exefilename);
 	//debugprintf("initial directory = \"%s\"...\n", initialDirectory);
 	BOOL created = CreateProcess(exefilename, // application name
-		NULL, // commandline arguments
+		(movie.version >= 60) ? commandline : NULL, // commandline arguments
 		NULL, // process attributes (e.g. security descriptor)
 		NULL, // thread attributes (e.g. security descriptor)
 		FALSE, // inherit handles
@@ -8072,33 +8121,32 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-   hInst = hInstance; // Store instance handle in our global variable
+	hInst = hInstance; // Store instance handle in our global variable
 
-   hWnd = CreateDialog(hInstance, MAKEINTRESOURCE(IDD_DIALOG1), NULL, (DLGPROC)DlgProc);
+	hWnd = CreateDialog(hInstance, MAKEINTRESOURCE(IDD_DIALOG1), NULL, (DLGPROC)DlgProc);
 
-   if (!hWnd)
-   {
-      return FALSE;
-   }
+	if(!hWnd)
+		return FALSE;
 
-   SendMessage(hWnd, WM_SETICON, WPARAM(ICON_SMALL), LPARAM(LoadImage(hInst, MAKEINTRESOURCE(IDI_MYICON), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR)));
-   SendMessage(hWnd, WM_SETICON, WPARAM(ICON_BIG),   LPARAM(LoadImage(hInst, MAKEINTRESOURCE(IDI_MYICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR)));
+	SendMessage(hWnd, WM_SETICON, WPARAM(ICON_SMALL), LPARAM(LoadImage(hInst, MAKEINTRESOURCE(IDI_MYICON), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR)));
+	SendMessage(hWnd, WM_SETICON, WPARAM(ICON_BIG),   LPARAM(LoadImage(hInst, MAKEINTRESOURCE(IDI_MYICON), IMAGE_ICON, 32, 32, LR_DEFAULTCOLOR)));
 
-   //hExternalWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-   //   CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
+	//hExternalWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+	//   CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, NULL, NULL, hInstance, NULL);
 
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
+	ShowWindow(hWnd, nCmdShow);
+	SetForegroundWindow(hWnd);
+	UpdateWindow(hWnd);
 
-//#if 0
-//   // remote viewport, for now I only use this for debugging eversion savestates
-//   hExternalWnd = CreateDialog(hInstance, MAKEINTRESOURCE(IDD_DIALOG2), hWnd, (DLGPROC)ViewportDlgProc);
-//   SetWindowPos(hExternalWnd, NULL, 0,340, 0, 0, SWP_NOSIZE|SWP_NOZORDER);
-//   ShowWindow(hExternalWnd, nCmdShow);
-//   UpdateWindow(hExternalWnd);
-//#endif
+	//#if 0
+	//   // remote viewport, for now I only use this for debugging eversion savestates
+	//   hExternalWnd = CreateDialog(hInstance, MAKEINTRESOURCE(IDD_DIALOG2), hWnd, (DLGPROC)ViewportDlgProc);
+	//   SetWindowPos(hExternalWnd, NULL, 0,340, 0, 0, SWP_NOSIZE|SWP_NOZORDER);
+	//   ShowWindow(hExternalWnd, nCmdShow);
+	//   UpdateWindow(hExternalWnd);
+	//#endif
 
-   return TRUE;
+	return TRUE;
 }
 
 static void EnableDisablePlayRecordButtons(HWND hDlg)
@@ -8260,6 +8308,12 @@ void SplitToValidPath(const char* initialPath, const char* defaultDir, char* fil
 		memmove(filename, slash, 1+strlen(slash));
 }
 
+BOOL SetWindowTextAndScrollRight(HWND hEdit, LPCSTR lpString)
+{
+	BOOL rv = SetWindowText(hEdit, lpString);
+	SendMessage(hEdit, EM_SETSEL, -2, -1);
+	return rv;
+}
 
 BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
@@ -8327,8 +8381,9 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				char temp_moviefilename [MAX_PATH+1];
 				strcpy(temp_moviefilename, moviefilename);
 				movienameCustomized = false;
-				SetWindowText(GetDlgItem(hDlg, IDC_EDIT_EXE), path);
-				SetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), temp_moviefilename);
+				SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_EXE), path);
+				SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_MOVIE), temp_moviefilename);
+				SetWindowText(GetDlgItem(hDlg, IDC_EDIT_COMMANDLINE), commandline);
 				movienameCustomized = false;
 				SetFocus(GetDlgItem(hDlg, IDC_BUTTON_RECORD));
 
@@ -8470,6 +8525,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					fastforward = !fastforward;
 					tasFlagsDirty = true;
 					CheckDialogChanges(-1);
+					mainMenuNeedsRebuilding = true;
 					break;
 				case IDC_FASTFORWARD:
 					fastforward = IsDlgButtonChecked(hDlg, IDC_FASTFORWARD) != 0;
@@ -8916,6 +8972,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 				case ID_DEBUGLOG_LOGFILE: debugPrintMode = 2; tasFlagsDirty = true; break;
 				
 				case ID_DEBUGLOG_TOGGLETRACEENABLE: traceEnabled = !traceEnabled; mainMenuNeedsRebuilding = true; break;
+				case ID_DEBUGLOG_TOGGLECRCVERIFY: crcVerifyEnabled = !crcVerifyEnabled; mainMenuNeedsRebuilding = true; break;
 				case ID_PERFORMANCE_TOGGLESAVEVIDMEM: storeVideoMemoryInSavestates = !storeVideoMemoryInSavestates; tasFlagsDirty = true; break;
 				case ID_PERFORMANCE_TOGGLESAVEGUARDED: storeGuardedPagesInSavestates = !storeGuardedPagesInSavestates; mainMenuNeedsRebuilding = true; break;
 				case ID_PERFORMANCE_DEALLOCSTATES:
@@ -9132,6 +9189,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						playback = false;
 						nextLoadRecords = true;
 						fastforward = false;
+						GetWindowText(GetDlgItem(hWnd, IDC_EDIT_COMMANDLINE), commandline, ARRAYSIZE(commandline));
 						debuggerThread = CreateThread(NULL, 0, DebuggerThreadFunc, NULL, 0, NULL);
 						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_STOP), true);
 					}
@@ -9148,6 +9206,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_PLAY), false);
 						playback = true;
 						nextLoadRecords = false;
+						GetWindowText(GetDlgItem(hWnd, IDC_EDIT_COMMANDLINE), commandline, ARRAYSIZE(commandline));
 						debuggerThread = CreateThread(NULL, 0, DebuggerThreadFunc, NULL, 0, NULL);
 						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_STOP), true);
 					}
@@ -9181,8 +9240,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						ofn.lpstrDefExt = "exe";
 						if(GetOpenFileName(&ofn))
 						{
-							SetWindowText(GetDlgItem(hDlg, IDC_EDIT_EXE), filename);
-							SendMessage(GetDlgItem(hDlg, IDC_EDIT_EXE), EM_SETSEL, -2, -1);
+							SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_EXE), filename);
 						}
 						Save_Config();
 					}
@@ -9197,6 +9255,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						char filename [MAX_PATH+1] = {0};
 						char directory [MAX_PATH+1] = {0};
 						SplitToValidPath(moviefilename, thisprocessPath, filename, directory);
+						NormalizePath(moviefilename, moviefilename);
 
 						bool isSave = (command == ID_FILES_RECORDMOV || command == ID_FILES_RESUMEMOVAS);
 
@@ -9210,7 +9269,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						OPENFILENAME ofn = {sizeof(OPENFILENAME)};
 						ofn.hwndOwner = hWnd;
 						ofn.hInstance = hInst;
-						ofn.lpstrFilter = "Windows TAS Files\0*.wtf;*.wtf2;*.wtf3;*.wtf4;*.wtf5;*.wtf6;*.wtf7;*.wtf8;*.wtf9;*.wtf*\0All Files\0*.*\0\0";
+						ofn.lpstrFilter = "Windows TAS Files\0*.wtf;*.wtf2;*.wtf3;*.wtf4;*.wtf5;*.wtf6;*.wtf7;*.wtf8;*.wtf9;*.wtf*;*.hgm\0All Files\0*.*\0\0";
 						ofn.nFilterIndex = 1;
 						ofn.lpstrFile = filename;
 						ofn.nMaxFile = MAX_PATH;
@@ -9223,8 +9282,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 							if(started && (!playback || nextLoadRecords))
 								SaveMovieToFile(moviefilename);
 
-							SetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
-							SendMessage(GetDlgItem(hDlg, IDC_EDIT_MOVIE), EM_SETSEL, -2, -1);
+							SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
 
 							if(movieFileWritable && exeFileExists)
 							{
@@ -9261,15 +9319,66 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						UpdateFrameCountDisplay(movie.currentFrame, 1);
 					}
 					break;
-				case IDC_EDIT_EXE:
+				case IDC_EDIT_COMMANDLINE:
+					if(HIWORD(wParam) == EN_CHANGE)
 					{
+						GetWindowText(GetDlgItem(hWnd, IDC_EDIT_COMMANDLINE), commandline, ARRAYSIZE(commandline));
+					}
+					break;
+				case IDC_EDIT_EXE:
+					if(HIWORD(wParam) == EN_CHANGE || !movieFileExists || !*moviefilename)
+					{
+						static bool recursing = false;
+						if(recursing)
+							break;
+						recursing = true;
+
 						GetWindowText(GetDlgItem(hDlg, IDC_EDIT_EXE), exefilename, MAX_PATH);
-						EnableDisablePlayRecordButtons(hDlg);
+						NormalizePath(exefilename, exefilename);
+						EnableDisablePlayRecordButtons(hDlg); // updates exeFileExists
+
+						if(!exeFileExists)
+						{
+							// check for commandline args typed after exe name, and move them to the proper place if found
+							int last = strlen(exefilename) - 6;
+							char* pExe = NULL;
+							for(int i = last; i > 0; i--)
+								if(!_strnicmp(exefilename+i, ".exe ", sizeof(".exe ")-1))
+									pExe = exefilename+i;
+							if(pExe)
+							{
+								pExe[4] = 0;
+								FILE* tempfile = fopen(exefilename, "rb");
+								if(tempfile)
+								{
+									fclose(tempfile);
+									char cmdline [ARRAYSIZE(commandline)];
+									strncpy(cmdline, pExe+5, ARRAYSIZE(cmdline));
+									cmdline[ARRAYSIZE(cmdline)-1] = 0;
+									NormalizePath(exefilename, exefilename);
+									signed short prevSel = SendMessage(GetDlgItem(hDlg, IDC_EDIT_EXE), EM_GETSEL, NULL, NULL) & 0xFFFF;
+									prevSel -= ((pExe+5) - exefilename);
+									prevSel = max(prevSel, -2);
+									SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_EXE), exefilename);
+									EnableDisablePlayRecordButtons(hDlg); // updates exeFileExists. can change commandline.
+									strcpy(commandline, cmdline);
+									SetWindowText(GetDlgItem(hDlg, IDC_EDIT_COMMANDLINE), commandline);
+									SetFocus(GetDlgItem(hDlg, IDC_EDIT_COMMANDLINE));
+									SendMessage(GetDlgItem(hDlg, IDC_EDIT_COMMANDLINE), EM_SETSEL, prevSel, prevSel);
+								}
+								else
+								{
+									pExe[4] = ' ';
+								}
+							}
+						}
+
+
 						FILE* file = *exefilename ? fopen(exefilename, "rb") : NULL;
 						if(file)
 						{
 							fclose(file);
-							if((!movienameCustomized) || !*moviefilename)
+							if((!movienameCustomized && HIWORD(wParam) == EN_CHANGE) || !movieFileExists || !*moviefilename)
 							{
 								// a little hack to help people out when first selecting an exe for recording,
 								// until perhaps there's a proper ini file for such defaults
@@ -9334,35 +9443,48 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 									mainMenuNeedsRebuilding = true;
 								}
 							}
-							if(!*moviefilename || !movienameCustomized) // set default movie name based on exe
+							if(!movieFileExists || !*moviefilename || !movienameCustomized) // set default movie name based on exe
 							{
-								char filename [MAX_PATH+1];
-								strcpy(filename, exefilename);
-								char* slash = max(strrchr(filename, '\\'), strrchr(filename, '/'));
-								char* dot = strrchr(filename, '.');
-								if(slash<dot)
+								bool setMovieFile = true;
+								if(movieFileExists)
 								{
-									char path [MAX_PATH+1];
-									strcpy(path, thisprocessPath);
-									strcat(path, "\\");
-									strcpy(dot, ".wtf");
-									const char* moviename = slash ? slash+1 : filename;
-									strcat(path, moviename);
-									if(0 != strcmp(path, moviefilename))
+									const char* exefname = GetExeFilenameWithoutPath();
+									if(!strncmp(exefname, movie.exefname, 48))
+										setMovieFile = false; // exe didn't actually change
+								}
+
+								if(setMovieFile)
+								{
+									char filename [MAX_PATH+1];
+									strcpy(filename, exefilename);
+									char* slash = max(strrchr(filename, '\\'), strrchr(filename, '/'));
+									char* dot = strrchr(filename, '.');
+									if(slash<dot)
 									{
-										SetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), path);
-										SendMessage(GetDlgItem(hDlg, IDC_EDIT_MOVIE), EM_SETSEL, -2, -1);
-										movienameCustomized = false;
+										char path [MAX_PATH+1];
+										strcpy(path, thisprocessPath);
+										strcat(path, "\\");
+										strcpy(dot, ".wtf");
+										const char* moviename = slash ? slash+1 : filename;
+										strcat(path, moviename);
+										if(0 != strcmp(path, moviefilename))
+										{
+											SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_MOVIE), path);
+											movienameCustomized = false;
+										}
 									}
 								}
 							}
 						}
+
+						recursing = false;
 					}
 					break;
 				case IDC_EDIT_MOVIE:
 					if(HIWORD(wParam) == EN_CHANGE)
 					{
 						GetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), moviefilename, MAX_PATH);
+						NormalizePath(moviefilename, moviefilename);
 						EnableDisablePlayRecordButtons(hDlg);
 						movienameCustomized = (*moviefilename) != 0;
 					}
@@ -9391,13 +9513,11 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						{
 							if(!stricmp(dot, ".exe")) // executable (game)
 							{
-								SetWindowText(GetDlgItem(hDlg, IDC_EDIT_EXE), filename);
-								SendMessage(GetDlgItem(hDlg, IDC_EDIT_EXE), EM_SETSEL, -2, -1);
+								SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_EXE), filename);
 							}
-							else if(!_strnicmp(dot, ".wtf", 4)) // windows TAS file (input movie)
+							else if(!_strnicmp(dot, ".wtf", 4) || !_strnicmp(dot, ".hgm", 4)) // windows TAS file (input movie)
 							{
-								SetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
-								SendMessage(GetDlgItem(hDlg, IDC_EDIT_MOVIE), EM_SETSEL, -2, -1);
+								SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
 							}
 							else if(!stricmp(dot, ".cfg"))
 							{

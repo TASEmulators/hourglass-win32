@@ -1869,8 +1869,6 @@ extern bool recoveringStale;
 extern bool exeFileExists;
 extern bool movieFileExists;
 extern bool movieFileWritable;
-extern char moviefilename [MAX_PATH+1];
-extern char exefilename [MAX_PATH+1];
 extern int forceWindowed;
 extern int truePause;
 extern int onlyHookChildProcesses;
@@ -1891,6 +1889,7 @@ extern int waitSyncMode;
 extern int aviFrameCount;
 extern int aviSoundFrameCount;
 extern bool traceEnabled;
+extern bool crcVerifyEnabled;
 extern int storeVideoMemoryInSavestates;
 extern int storeGuardedPagesInSavestates;
 extern int appLocale;
@@ -1901,6 +1900,7 @@ extern LogCategoryFlag excludeLogFlags;
 
 extern char moviefilename [MAX_PATH+1];
 extern char exefilename [MAX_PATH+1];
+extern char commandline [160];
 extern char thisprocessPath [MAX_PATH+1];
 
 static const char* defaultConfigFilename = "hourglass.cfg";
@@ -1924,6 +1924,7 @@ int Save_Config(const char* filename)
 
 	WritePrivateProfileStringA("General", "Exe path", exefilename, Conf_File);
 	WritePrivateProfileStringA("General", "Movie path", moviefilename, Conf_File);
+	WritePrivateProfileStringA("General", "Command line", commandline, Conf_File);
 
 	//for(int i = 0; i < MAX_RECENT_ROMS; i++)
 	//{
@@ -1949,6 +1950,7 @@ int Save_Config(const char* filename)
 
 	SetPrivateProfileIntA("Debug", "Debug Logging Mode", debugPrintMode, Conf_File);
 	SetPrivateProfileIntA("Debug", "Load Debug Tracing", traceEnabled, Conf_File);
+	SetPrivateProfileIntA("General", "Verify CRCs", crcVerifyEnabled, Conf_File);
 
 	wsprintf(Str_Tmp, "%d", AutoRWLoad);
 	WritePrivateProfileString("Watches", "AutoLoadWatches", Str_Tmp, Conf_File);
@@ -2025,6 +2027,7 @@ int Load_Config(const char* filename)
 
 	GetPrivateProfileStringA("General", "Exe path", exefilename, exefilename, MAX_PATH, Conf_File);
 	GetPrivateProfileStringA("General", "Movie path", moviefilename, moviefilename, MAX_PATH, Conf_File);
+	GetPrivateProfileStringA("General", "Command line", commandline, commandline, ARRAYSIZE(commandline), Conf_File);
 
 	//for(int i = 0; i < MAX_RECENT_ROMS; i++)
 	//{
@@ -2050,6 +2053,7 @@ int Load_Config(const char* filename)
 
 	debugPrintMode = GetPrivateProfileIntA("Debug", "Debug Logging Mode", debugPrintMode, Conf_File);
 	traceEnabled = 0!=GetPrivateProfileIntA("Debug", "Load Debug Tracing", traceEnabled, Conf_File);
+	crcVerifyEnabled = 0!=GetPrivateProfileIntA("General", "Verify CRCs", crcVerifyEnabled, Conf_File);
 
 	if (RWSaveWindowPos)
 	{
@@ -2311,7 +2315,7 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	
 	i = 0;
 
-	MENU_L(Graphics, i++, Flags | (!forceWindowed ? MF_CHECKED : MF_UNCHECKED) | (started ? MF_GRAYED : 0), ID_GRAPHICS_ALLOWFULLSCREEN, "", "Allow &Fullscreen", "can't change while running");
+	MENU_L(Graphics, i++, Flags | (!forceWindowed ? MF_CHECKED : MF_UNCHECKED) | (started ? MF_GRAYED : 0), ID_GRAPHICS_ALLOWFULLSCREEN, "", "Allow &Fullscreen / Display Mode Changes", "can't change while running");
 	InsertMenu(Graphics, i++, MF_SEPARATOR, NULL, NULL);
 	MENU_L(Graphics, i++, Flags | (!forceSoftware ? MF_CHECKED : MF_UNCHECKED) | (started ? MF_GRAYED : 0), ID_GRAPHICS_FORCESOFTWARE, "", "&Allow Hardware Acceleration", "can't change while running");
 	MENU_L(Graphics, i++, Flags | MF_POPUP | ((forceSoftware||started) ? MF_GRAYED : 0), (UINT)GraphicsMemory, "", "Surface &Memory", started ? "can't change while running" : "hardware acceleration must be enabled");
@@ -2442,6 +2446,7 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	// Performance Submenu
 	i = 0;
 	MENU_L(Performance, i++, Flags | ((traceEnabled)?MF_CHECKED:MF_UNCHECKED) | (started?MF_GRAYED:0), ID_DEBUGLOG_TOGGLETRACEENABLE, "", "Load All Symbols and dbghelp.dll", "can't change while running");
+	MENU_L(Performance, i++, Flags | ((crcVerifyEnabled)?MF_CHECKED:MF_UNCHECKED) | (started?MF_GRAYED:0), ID_DEBUGLOG_TOGGLECRCVERIFY, "", "Check CRCs on movie playback", "can't change while running");
 	InsertMenu(Performance, i++, MF_SEPARATOR, NULL, NULL);
 	MENU_L(Performance, i++, Flags | ((storeVideoMemoryInSavestates)?MF_CHECKED:MF_UNCHECKED), ID_PERFORMANCE_TOGGLESAVEVIDMEM, "", "Store Video Memory in Savestates", 0);
 	MENU_L(Performance, i++, Flags | ((storeGuardedPagesInSavestates)?MF_CHECKED:MF_UNCHECKED), ID_PERFORMANCE_TOGGLESAVEGUARDED, "", "Store Guarded Memory Pages in Savestates", 0);
