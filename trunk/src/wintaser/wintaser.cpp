@@ -1146,7 +1146,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		}
 
 		bool probablyDesync = false;
-		if(version > myVersion+7 || version < myVersion-40) // not very scientific here. change as needed.
+		if(version > myVersion+7 /*|| version < myVersion-40*/) // not very scientific here. change as needed.
 			probablyDesync = true;
 		// in the future: if it's known whether certain versions sync with the current version, set probablyDesync depending on the version numbers.
 		// and maybe add more specific warning messages, if warranted
@@ -1167,7 +1167,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 			probablyDesync?"This could easily cause the movie to desync.":"This could cause desyncs if there were sync changes in-between those versions.",
 			(myVersion>version)?"If this doesn't work, you might want to temporarily use an older version of Hourglass.":"You should probably switch to a newer version of Hourglass.",
 			(myVersion>version)?"Do you want to try playing the movie normally?":"Play the movie anyway?",
-			(myVersion>version)?"(\"No\" enables backward compatibility mode, but might cause problems.)":""
+			(myVersion>version)?"(\"No\" enables backward compatibility mode, but can cause old bugs to reappear.)":""
 		);
 		int result = CustomMessageBox(str, "Movie Version", ((myVersion>version) ? MB_YESNOCANCEL : MB_YESNO) | (probablyDesync?MB_ICONWARNING:MB_ICONQUESTION) | MB_DEFBUTTON1);
 		if(myVersion>version)
@@ -7342,25 +7342,44 @@ restartgame:
 					}
 					else // actual crash:
 					{
+						bool skipDialog = false;
 						if((!postDllMainDone || s_lastFrameCount < 4) && !runDllLast)
 						{
 							// this is so RotateGear can run
-							debugprintf("the game crashed, but...\n");
-							debugprintf("assuming crash is due to some bug in IATModifier::writeIAT. retrying with alternate method.\n");
-							runDllLast = true;
+							int result = IDYES;
+							if(movie.version >= 66)
+							{
+								result = CustomMessageBox("The game failed to start up.\n"
+									"\n"
+									"Sometimes this can be fixed by changing your settings or using a different OS,\n"
+									"but usually this means the game is not supported yet.\n"
+									"\n"
+									"In certain specific games (such as RotateGear),\n"
+									"this is expected to happen because of DLL loading order problems.\n"
+									"Do you want to try restarting the game with a different loading order?\n"
+									"(If this is not one of those specific games, this can cause desyncs.)", "CRASH",
+									MB_YESNO|MB_DEFBUTTON2|MB_ICONERROR);
+								skipDialog = true;
+							}
+							if(result == IDYES)
+							{
+								debugprintf("the game crashed, but...\n");
+								debugprintf("assuming crash is due to some bug in IATModifier::writeIAT. retrying with alternate method.\n");
+								runDllLast = true;
 
-							//CloseHandle(hGameProcess);
-							//hGameProcess = 0;
-							//TerminateProcess(hGameProcess, -1);
+								//CloseHandle(hGameProcess);
+								//hGameProcess = 0;
+								//TerminateProcess(hGameProcess, -1);
 
-							LeaveCriticalSection(&g_processMemCS);
-							//HANDLE hProcess = GetProcessHandle(processInfo,de); 
-							//DebuggerThreadFuncCleanup(processInfo.hThread, hProcess);
+								LeaveCriticalSection(&g_processMemCS);
+								//HANDLE hProcess = GetProcessHandle(processInfo,de); 
+								//DebuggerThreadFuncCleanup(processInfo.hThread, hProcess);
 
-							ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_EXCEPTION_NOT_HANDLED);
-							SafeTerminateProcess(processInfo);
+								ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_EXCEPTION_NOT_HANDLED);
+								SafeTerminateProcess(processInfo);
 
-							goto restartgame;
+								goto restartgame;
+							}
 						}
 
 
@@ -7422,9 +7441,8 @@ restartgame:
 							);
 							debugprintf(msg);
 #ifndef _DEBUG
-
-							CustomMessageBox(msg, "CRASH", MB_OK|MB_ICONERROR);
-
+							if(!skipDialog)
+								CustomMessageBox(msg, "CRASH", MB_OK|MB_ICONERROR);
 #endif
 						}
 						requestedCommandReenter = false; // maybe fixes something?
