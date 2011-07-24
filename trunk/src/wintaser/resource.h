@@ -28,6 +28,7 @@
 #define IDC_EDIT_MAXFRAME               1011
 #define IDC_EDIT_RERECORDS              1012
 #define IDC_EDIT_SYSTEMCLOCK           1013
+#define IDC_EDIT_COMMANDLINE            1014
 #define IDC_CHECK_MOUSE                 1015
 #define IDC_BUTTON_RECORD               1016
 #define IDC_CHECK_GAMEPAD               1017
@@ -188,6 +189,7 @@
 #define ID_PERFORMANCE_TOGGLESAVEGUARDED 35305
 #define ID_PERFORMANCE_DEALLOCSTATES     35306
 #define ID_PERFORMANCE_DELETESTATES      35307
+#define ID_DEBUGLOG_TOGGLECRCVERIFY      35308
 
 #define ID_FILES_STOP_RELAY             40010
 #define ID_FILES_STOP                   40011
