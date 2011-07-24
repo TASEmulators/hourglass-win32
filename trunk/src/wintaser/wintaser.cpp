@@ -2417,6 +2417,7 @@ void RefreshSavestates(int frameCount)
 
 void SuspendAllExcept(int ignoreThreadID);
 void ResumeAllExcept(int ignoreThreadID);
+void CheckDialogChanges(int frameCount);
 
 //DWORD lastKeyThreadId = 0;
 
@@ -2568,12 +2569,13 @@ void CheckHotkeys(int frameCount, bool frameSynced)
 	}
 
 	int time = timeGetTime();
-	if(FrameAdvanceKeyDown)
+	if(FrameAdvanceKeyDown && started)
 	{
 		if(!paused)
 		{
 			// if pressed while unpaused, frame advance transitions to paused
 			paused = true;
+			CheckDialogChanges(frameCount);
 
 			if(fastforward)
 				temporaryUnpause = true;
