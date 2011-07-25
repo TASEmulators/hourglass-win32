@@ -6340,6 +6340,20 @@ const char* ExceptionCodeToDescription(DWORD code, const char* defaultRv="(unkno
 	}
 } // end of ExceptionCodeToDescription
 
+static int CountSharedPrefixLength(const char* a, const char* b)
+{
+	int i = 0;
+	while(a[i] && tolower(a[i]) == tolower(b[i]))
+		i++;
+	return i;
+}
+static int CountBackslashes(const char* str)
+{
+	int count = 0;
+	while((str = strchr(str, '\\'))!=0)
+		count++, str++;
+	return count;
+}
 
 static int IsPathTrusted(const char* path)
 {
@@ -6350,20 +6364,30 @@ static int IsPathTrusted(const char* path)
 	if(!_stricmp(path, injectedDllPath))
 		return 2;
 
-	const char* end = path + strlen(path);
 	int outCount = 2;
-	for(const char* newEnd = end; outCount && newEnd != path; newEnd--)
+	if(movie.version >= 68)
 	{
-		if(*newEnd == '\\')
-		{
-			end = newEnd + 1;
-			outCount--;
-		}
+		if(CountBackslashes(exefilename + CountSharedPrefixLength(exefilename, path)) < outCount)
+			return 1;
+		if(CountBackslashes(subexefilename + CountSharedPrefixLength(subexefilename, path)) < outCount)
+			return 1;
 	}
-	if(!_strnicmp(path, exefilename, end - path))
-		return 1;
-	if(!_strnicmp(path, subexefilename, end - path))
-		return 1;
+	else // old version, which accidentally trusts some paths it clearly shouldn't:
+	{
+		const char* end = path + strlen(path);
+		for(const char* newEnd = end; outCount && newEnd != path; newEnd--)
+		{
+			if(*newEnd == '\\')
+			{
+				end = newEnd + 1;
+				outCount--;
+			}
+		}
+		if(!_strnicmp(path, exefilename, end - path))
+			return 1;
+		if(!_strnicmp(path, subexefilename, end - path))
+			return 1;
+	}
 	if(strlen(path) >= 4 && !_strnicmp(path + strlen(path) - 4, ".cox", 4)) // hack, we can generally assume the game outputted any dll that has this extension
 		return 1;
 
@@ -6752,7 +6776,7 @@ restartgame:
 		*slash = 0;
 
 	char* cmdline = NULL;
-	if(movie.version == 60)
+	if(movie.version >= 60 && movie.version <= 63)
 		cmdline = commandline;
 	else if(movie.version >= 64)
 	{
