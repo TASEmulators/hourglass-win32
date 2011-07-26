@@ -1530,6 +1530,13 @@ void HookCOMInterface(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew)
 
 //typedef UINT (WINAPI *SetCPGlobalType)(UINT acp);
 
+OSVERSIONINFO osvi = {sizeof(OSVERSIONINFO)};
+// warning: we can't trust these too much (version lies from compatibility mode shims are common)
+bool IsWindowsXP()    { return osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 1; }
+bool IsWindowsVista() { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 0; }
+bool IsWindows7()     { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 1; }
+
+
 DWORD WINAPI PostDllMain(LPVOID lpParam)
 {
 	dllInitializationDone = true;
@@ -1538,8 +1545,16 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 	detTimer.OnSystemTimerRecalibrated();
 
 	ThreadLocalStuff& curtls = tls;
-	curtls.callerisuntrusted++;
-	//curtls.treatDLLLoadsAsClient++;
+	curtls.callerisuntrusted++; // avoid advancing timer here
+
+	// see MyKiUserCallbackDispatcher... to avoid hardcoding OS-specific constants, we take the chance to measure one of them here.
+	extern bool watchForCLLApiNum;
+	extern int cllApiNum;
+	watchForCLLApiNum = true; // a few functions like GetSystemMetrics and LoadKeyboardLayout are very likely to call ClientLoadLibrary
+	curtls.treatDLLLoadsAsClient++;
+	GetSystemMetrics(42);
+	curtls.treatDLLLoadsAsClient--; // disable here because we'd prefer LoadKeyboardLayout to actually succeed.  
+	curtls.callingClientLoadLibrary = FALSE;
 
 	// moved from DllMain since it was causing a loader lock problem
 	//LoadKeyboardLayoutA(keyboardLayoutName, KLF_ACTIVATE | KLF_REORDER | KLF_SETFORPROCESS);
@@ -1553,6 +1568,7 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 			(DWORD&)g_hklOverride |= ((DWORD)g_hklOverride << 16);
 	}
 	debugprintf("keyboardLayout = %s, hkl = %08X -> %08X", keyboardLayoutName, loadLayoutRv, g_hklOverride);
+	curtls.callingClientLoadLibrary = FALSE;
 
 	if(tasflags.appLocale)
 	{
@@ -1560,10 +1576,25 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 		SetThreadUILanguage(tasflags.appLocale);
 	}
 
-	//curtls.treatDLLLoadsAsClient--;
+	if(watchForCLLApiNum || cllApiNum == -1)
+	{
+		// didn't find it, somehow
+		watchForCLLApiNum = false;
+		cllApiNum = -1;
+		GetVersionEx(&osvi);
+		cllApiNum = (IsWindows7() ? 65 : 66);
+		debugprintf("using ClientLoadLibrary ApiNumber = %d. OS = %d.%d\n", cllApiNum, osvi.dwMajorVersion, osvi.dwMinorVersion);
+	}
+	else
+	{
+		GetVersionEx(&osvi);
+		debugprintf("found ClientLoadLibrary ApiNumber = %d. OS = %d.%d\n", cllApiNum, osvi.dwMajorVersion, osvi.dwMinorVersion);
+	}
+	curtls.callingClientLoadLibrary = FALSE;
+
 	curtls.callerisuntrusted--;
 
-	tls.isFirstThread = true;
+	curtls.isFirstThread = true;
 
 	cmdprintf("POSTDLLMAINDONE: 0");
 

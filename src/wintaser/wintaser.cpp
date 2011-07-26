@@ -257,7 +257,7 @@ bool InjectDLLIntoIDT(DWORD dwInjectProcessID, HANDLE hInjectProcess, HANDLE hIn
 
 
 OSVERSIONINFO osvi = {sizeof(OSVERSIONINFO)};
-
+// warning: we can't trust these too much (version lies from compatibility mode shims are common)
 bool IsWindowsXP()    { return osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 1; }
 bool IsWindowsVista() { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 0; }
 bool IsWindows7()     { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 1; }
@@ -8012,12 +8012,12 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	NormalizePath(thisprocessPath, thisprocessPath);
 
 	GetVersionEx(&osvi);
-	if(!IsWindowsXP() && !IsWindows7())
-	{
-		// HACK: disable a feature on systems not supported by the current implementation of MyKiUserCallbackDispatcher
-		allowLoadInstalledDlls = true;
-		allowLoadUxtheme = true;
-	}
+	//if(!IsWindowsXP() && !IsWindows7())
+	//{
+	//	// HACK: disable a feature on systems not supported by the current implementation of MyKiUserCallbackDispatcher
+	//	allowLoadInstalledDlls = true;
+	//	allowLoadUxtheme = true;
+	//}
 
 	InitRamSearch();
 

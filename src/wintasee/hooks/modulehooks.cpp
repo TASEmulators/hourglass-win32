@@ -234,6 +234,9 @@ static BOOL WideStringContains(LPWSTR lpFileName, const char* match)
 	return (BOOL)strstr(name, match);
 }
 
+bool watchForCLLApiNum = false;
+int cllApiNum = -1;
+
 //void debugsplatmem(DWORD address, const char* name);
 
 HOOKFUNC NTSTATUS NTAPI MyLdrLoadDll(PWCHAR PathToFile, ULONG Flags, PUNICODE_STRING ModuleFileName, PHANDLE ModuleHandle)
@@ -259,6 +262,7 @@ HOOKFUNC NTSTATUS NTAPI MyLdrLoadDll(PWCHAR PathToFile, ULONG Flags, PUNICODE_ST
 		if(curtls.callingClientLoadLibrary || curtls.treatDLLLoadsAsClient)
 		{
 			curtls.callingClientLoadLibrary = FALSE; // see MyKiUserCallbackDispatcher
+			watchForCLLApiNum = false; // if we were watching for the apiNum, it must have worked
 			if(!ShouldLoadUserDll(ModuleFileName->Buffer))
 			{
 				//debuglog(LCF_MODULE, "DENIED loading DLL: %S\n", ModuleFileName->Buffer);
@@ -432,24 +436,22 @@ HOOKFUNC NTSTATUS NTAPI MyLdrLoadDll(PWCHAR PathToFile, ULONG Flags, PUNICODE_ST
 
 HOOKFUNC VOID NTAPI MyKiUserCallbackDispatcher(ULONG ApiNumber, PVOID InputBuffer, ULONG InputLength)
 {
-//	debugprintf(__FUNCTION__ "(ApiNumber=%d) called.\n",ApiNumber);
+	//debugprintf(__FUNCTION__ "(ApiNumber=%d) called.\n",ApiNumber);
+
+	// maybe should instead scan the stack in MyLdrLoadDll for something we put on the stack in MyKiUserCallbackDispatcher? but I couldn't get it to work...
 //	char test [8] = {0,0x42,0x42,0x42,0x42,0x42,0x42,0x42,};
 //	debugprintf(test);
 
-	// FIXME: hardcoded OS-version-specific numbers suck.
-	// maybe should scan the stack in MyLdrLoadDll for KiUserCallbackDispatcher.
-	if(ApiNumber != 66 // the index of user32!__ClientLoadLibrary in the KernelCallbackTable on Windows XP 32-bit
-	&& ApiNumber != 65 // the index of user32!__ClientLoadLibrary in the KernelCallbackTable on Windows 7 in Wow64
-	)
-	{
-		KiUserCallbackDispatcher(ApiNumber, InputBuffer, InputLength);
-	}
-	else
-	{
+	if(watchForCLLApiNum)
+		cllApiNum = ApiNumber;
+
+	if(ApiNumber == cllApiNum)
 		tls.callingClientLoadLibrary = TRUE;
-		KiUserCallbackDispatcher(ApiNumber, InputBuffer, InputLength);
-		// code placed here won't run, so we reset tls.callingClientLoadLibrary in MyLdrLoadDll
-	}
+
+	KiUserCallbackDispatcher(ApiNumber, InputBuffer, InputLength);
+	// at least on Windows XP, code placed here won't run,
+	// because KiUserCallbackDispatcher returns directly to the kernel mode code that called us.
+	// so, so we have to reset tls.callingClientLoadLibrary elsewhere (in MyLdrLoadDll)
 }
 
 // TODO it's just for debugging but this is kind of wrong (chooseriid, riidToName)
