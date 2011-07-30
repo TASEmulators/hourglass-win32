@@ -291,10 +291,12 @@ struct MyDirectDrawSurface
 				if(pSurface != pBackBuffer)
 					if(!pSurface || FAILED(BltFast(pSurface, 0,0,pBackBuffer,NULL,DDBLTFAST_WAIT)))
 						pSurface = pBackBuffer; // fallback
+				desc.ddpfPixelFormat.dwSize = sizeof(DDPIXELFORMAT);
+				GetPixelFormat(pThis, &desc.ddpfPixelFormat);
 				if(desc.ddpfPixelFormat.dwRGBBitCount == 8)
 				{
 					LPDIRECTDRAWPALETTE pPalette;
-					if(SUCCEEDED(pSurface->GetPalette(&pPalette)))
+					if(SUCCEEDED(pThis->GetPalette(&pPalette)))
 					{
 						pPalette->GetEntries(0, 0, 256, &activePalette[0]);
 						pPalette->Release();
