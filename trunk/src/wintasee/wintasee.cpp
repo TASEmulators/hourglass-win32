@@ -1530,13 +1530,24 @@ void HookCOMInterface(REFIID riid, LPVOID* ppvOut, bool uncheckedFastNew)
 
 //typedef UINT (WINAPI *SetCPGlobalType)(UINT acp);
 
-OSVERSIONINFO osvi = {sizeof(OSVERSIONINFO)};
 // warning: we can't trust these too much (version lies from compatibility mode shims are common)
-bool IsWindowsXP()    { return osvi.dwMajorVersion == 5 && osvi.dwMinorVersion == 1; }
-bool IsWindowsVista() { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 0; }
-bool IsWindows7()     { return osvi.dwMajorVersion == 6 && osvi.dwMinorVersion == 1; }
+bool IsWindowsXP()    { return tasflags.osVersionMajor == 5 && tasflags.osVersionMinor == 1; }
+bool IsWindowsVista() { return tasflags.osVersionMajor == 6 && tasflags.osVersionMinor == 0; }
+bool IsWindows7()     { return tasflags.osVersionMajor == 6 && tasflags.osVersionMinor == 1; }
 
 
+// order of execution when the game starts up:
+// 1: A very small number of essential DLLs get loaded, such as kernel32.dll.
+// 2: DllMain runs, because this DLL (wintasee.dll) has been inserted into the IAT.
+// 3: Any statically-linked DLLs used by the game get loaded.
+// 4: WinMain runs, but pauses at a breakpoint the debugger process inserted at the entrypoint.
+// 5: PostDllMain runs (because we created a thread to run it in DllMain).
+// 6: WinMain resumes, and the game's code starts executing.
+
+
+// DllMain is the entry point of this DLL, but the things we can do there are extremely limited.
+// For example, DllMain is not allowed to call any function that might cause any DLL to load.
+// PostDllMain is the code we run after DllMain to finish up initialization without restrictions.
 DWORD WINAPI PostDllMain(LPVOID lpParam)
 {
 	dllInitializationDone = true;
@@ -1551,6 +1562,7 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 	extern bool watchForCLLApiNum;
 	extern int cllApiNum;
 	watchForCLLApiNum = true; // a few functions like GetSystemMetrics and LoadKeyboardLayout are very likely to call ClientLoadLibrary
+	cllApiNum = -1;
 	curtls.treatDLLLoadsAsClient++;
 	GetSystemMetrics(42);
 	curtls.treatDLLLoadsAsClient--; // disable here because we'd prefer LoadKeyboardLayout to actually succeed.  
@@ -1580,15 +1592,12 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 	{
 		// didn't find it, somehow
 		watchForCLLApiNum = false;
-		cllApiNum = -1;
-		GetVersionEx(&osvi);
 		cllApiNum = (IsWindows7() ? 65 : 66);
-		debugprintf("using ClientLoadLibrary ApiNumber = %d. OS = %d.%d\n", cllApiNum, osvi.dwMajorVersion, osvi.dwMinorVersion);
+		debugprintf("using ClientLoadLibrary ApiNumber = %d. OS = %d.%d\n", cllApiNum, tasflags.osVersionMajor, tasflags.osVersionMinor);
 	}
 	else
 	{
-		GetVersionEx(&osvi);
-		debugprintf("found ClientLoadLibrary ApiNumber = %d. OS = %d.%d\n", cllApiNum, osvi.dwMajorVersion, osvi.dwMinorVersion);
+		debugprintf("found ClientLoadLibrary ApiNumber = %d. OS = %d.%d\n", cllApiNum, tasflags.osVersionMajor, tasflags.osVersionMinor);
 	}
 	curtls.callingClientLoadLibrary = FALSE;
 
@@ -1597,6 +1606,7 @@ DWORD WINAPI PostDllMain(LPVOID lpParam)
 	curtls.isFirstThread = true;
 
 	cmdprintf("POSTDLLMAINDONE: 0");
+	debugprintf(__FUNCTION__ " returned.\n");
 
 	return 0;
 }
@@ -1607,10 +1617,6 @@ BOOL APIENTRY DllMain( HMODULE hModule,
                        LPVOID lpReserved
 					 )
 {
-//#pragma message("FIXMEEE")
-//return 1;
-//	debugprintf(__FUNCTION__ ": 0x%X, 0x%X, 0x%X\n", (DWORD)hModule, (DWORD)fdwReason, (DWORD)lpReserved);
-
 	ThreadLocalStuff::DllManage(fdwReason);
 
 	switch (fdwReason)
@@ -1620,7 +1626,6 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		tasflags.timescale = 1;
 		tasflags.timescaleDivisor = 1;
 
-//		MessageBox(NULL, "HELLOFOO", "BAZBAR", 0);
 		debugprintf("DllMain started, injection must have worked.\n");
 		hCurrentProcess = GetCurrentProcess();
 		DisableThreadLibraryCalls(hModule);
@@ -1725,16 +1730,27 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 			//		SetCPGlobal(LocaleToCodePage(tasflags.appLocale));
 		}
 
-		debugprintf("version = %d, movie version = %d\n", SRCVERSION, tasflags.movieVersion);
+		debugprintf("version = %d, movie version = %d, OS = %d.%d.\n", SRCVERSION, tasflags.movieVersion, tasflags.osVersionMajor, tasflags.osVersionMinor);
+
+		// in case PostDllMain doesn't get called right away (although we really need it to...)
+		if(tasflags.osVersionMajor <= 6)
+		{
+			extern int cllApiNum;
+			cllApiNum = (IsWindows7() ? 65 : 66);
+		}
 
 		detTimer.Initialize(tasflags.initialTime);
 		nonDetTimer.Initialize(tasflags.initialTime);
 
 		{
 			DWORD threadId = 0;
-			CreateThread(NULL, 0, PostDllMain, NULL, 0, &threadId);
+			HANDLE hThread = CreateThread(NULL, 0, PostDllMain, NULL, 0, &threadId); // note that Windows won't let this thread start executing until after DllMain returns
+			SetThreadPriority(hThread, THREAD_PRIORITY_TIME_CRITICAL); // in case suspending the main thread doesn't work
+			SetThreadPriorityBoost(hThread, TRUE);
 			SetThreadName(threadId, "PostDllMain");
 		}
+		if(!s_frameThreadId)
+			SetThreadName(-1, "Main");
 		break;
 	case DLL_THREAD_ATTACH:
 	case DLL_THREAD_DETACH:

@@ -1893,6 +1893,7 @@ extern bool crcVerifyEnabled;
 extern int storeVideoMemoryInSavestates;
 extern int storeGuardedPagesInSavestates;
 extern int appLocale;
+extern int tempAppLocale;
 extern int debugPrintMode;
 extern LogCategoryFlag includeLogFlags;
 extern LogCategoryFlag traceLogFlags;
@@ -2437,11 +2438,12 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 
 	// Locale Submenu	
 	i = 0;
-	MENU_L(Locale, i++, Flags | ((appLocale==0)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_LOCALE_SYSTEM, "", "Use system locale", 0);
-	MENU_L(Locale, i++, Flags | ((appLocale==1041)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_JAPANESE, "", "Force &Japanese locale", "can't enable while running");	
-	MENU_L(Locale, i++, Flags | ((appLocale==2052)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_CHINESE, "", "Force &Chinese (Simplified) locale", "can't enable while running");	
-	MENU_L(Locale, i++, Flags | ((appLocale==1042)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_KOREAN, "", "Force &Korean locale", "can't enable while running");	
-	MENU_L(Locale, i++, Flags | ((appLocale==1033)?MF_CHECKED:MF_UNCHECKED) | ((!appLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_ENGLISH, "", "Force &English locale", "can't enable while running");
+	int curAppLocale = appLocale ? appLocale : tempAppLocale;
+	MENU_L(Locale, i++, Flags | ((curAppLocale==0)?MF_CHECKED:MF_UNCHECKED) | ((tempAppLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_SYSTEM, "", "Use system locale", "movie has forced non-system locale");
+	MENU_L(Locale, i++, Flags | ((curAppLocale==1041)?MF_CHECKED:MF_UNCHECKED) | ((!curAppLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_JAPANESE, "", "Force &Japanese locale", "can't enable while running");	
+	MENU_L(Locale, i++, Flags | ((curAppLocale==2052)?MF_CHECKED:MF_UNCHECKED) | ((!curAppLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_CHINESE, "", "Force &Chinese (Simplified) locale", "can't enable while running");	
+	MENU_L(Locale, i++, Flags | ((curAppLocale==1042)?MF_CHECKED:MF_UNCHECKED) | ((!curAppLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_KOREAN, "", "Force &Korean locale", "can't enable while running");	
+	MENU_L(Locale, i++, Flags | ((curAppLocale==1033)?MF_CHECKED:MF_UNCHECKED) | ((!curAppLocale&&started)?MF_GRAYED:0), ID_EXEC_LOCALE_ENGLISH, "", "Force &English locale", "can't enable while running");
 
 	// Performance Submenu
 	i = 0;

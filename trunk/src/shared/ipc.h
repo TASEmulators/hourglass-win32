@@ -34,6 +34,7 @@ struct TasFlags
 	int storeVideoMemoryInSavestates;
 	int appLocale;
 	unsigned int movieVersion;
+	int osVersionMajor, osVersionMinor;
 	LogCategoryFlag includeLogFlags;
 	LogCategoryFlag excludeLogFlags;
 #ifdef _USRDLL

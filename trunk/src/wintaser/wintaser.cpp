@@ -547,7 +547,7 @@ struct Movie
 	int rerecordCount;
 	char keyboardLayoutName [KL_NAMELENGTH]; // "00000409" for standard US layout
 	int desyncDetectionTimerValues [16];
-	int version;
+	unsigned int version;
 	char exefname[48];
 	// note: these aren't the only things in the movie file format.
 	// see SaveMovieToFile or LoadMovieFromFile for the rest.
@@ -719,6 +719,7 @@ static int windowActivateFlags = 0;
 int storeVideoMemoryInSavestates = 1;
 int storeGuardedPagesInSavestates = 1;
 int appLocale = 0;
+int tempAppLocale = 0;
 int forceWindowed = 1;
 int truePause = 0;
 int onlyHookChildProcesses = 0;
@@ -1119,7 +1120,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		// SubWCRev doesn't run by default in debug builds,
 		// so ignore it if the SRCVERSION number is outdated
 		// (or -1, which means unknown and is assumed to be later than any other version).
-		&& !(SRCVERSION < version)
+		&& !((int)SRCVERSION < (int)version)
 #endif
 		)
 	{
@@ -1128,14 +1129,14 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 			strcpy(mvvs, "r49 or r51");
 		else if(version == 39)
 			strcpy(mvvs, "r39 or older");
-		else if(version == -1)
+		else if((int)version == -1)
 			strcpy(mvvs, "unknown version (r57 or later)");
 		else
 			sprintf(mvvs, "r%d", version);
 
 		int myVersion = SRCVERSION;
 		char myvs [64];
-		if(SRCVERSION == -1)
+		if((int)SRCVERSION == -1)
 			strcpy(myvs, "unknown version (r57 or later)");
 		else
 		{
@@ -2259,8 +2260,9 @@ void SendTASFlags()
 		timescale, timescaleDivisor,
 		allowLoadInstalledDlls, allowLoadUxtheme,
 		storeVideoMemoryInSavestates,
-		appLocale,
+		appLocale ? appLocale : tempAppLocale,
 		movie.version,
+		osvi.dwMajorVersion, osvi.dwMinorVersion,
 		includeLogFlags|traceLogFlags,
 		excludeLogFlags,
 	};
@@ -6529,6 +6531,88 @@ void UnregisterModuleInfo(LPVOID hModule, HANDLE hProcess, const char* path)
 
 
 
+struct CustomBreakpoint
+{
+	DWORD address;
+	DWORD threadId;
+	unsigned char origByte;
+};
+static std::vector<CustomBreakpoint> customBreakpoints;
+
+int GetBreakpointIndex(DWORD address, DWORD threadId)
+{
+	int count = customBreakpoints.size();
+	for(int i = 0; i < count; i++)
+	{
+		CustomBreakpoint& bp = customBreakpoints[i];
+		if(bp.address == address && bp.threadId == threadId)
+			return i;
+	}
+	return -1;
+}
+
+void AddBreakpoint(DWORD address, DWORD threadId, HANDLE hProcess)
+{
+	if(GetBreakpointIndex(address, threadId) != -1)
+		return;
+
+	CustomBreakpoint bp;
+	bp.address = address;
+	bp.threadId = threadId;
+
+	DWORD dwOldProtect = 0;
+	VirtualProtectEx(hProcess, (void*)address, 1, PAGE_READWRITE, &dwOldProtect); 
+
+	SIZE_T unused = 0;
+	ReadProcessMemory(hProcess, (void*)address, &bp.origByte, 1, &unused);
+
+	unsigned char newByte = 0xCC;
+	WriteProcessMemory(hProcess, (void*)address, &newByte, 1, &unused);
+
+	VirtualProtectEx(hProcess, (void*)address, 1, dwOldProtect, &dwOldProtect);
+
+	customBreakpoints.push_back(bp);
+}
+
+void RemoveBreakpoint(DWORD address, DWORD threadId, HANDLE hProcess)
+{
+	int index = GetBreakpointIndex(address, threadId);
+	if(index == -1)
+		return;
+
+	CustomBreakpoint& bp = customBreakpoints[index];
+
+	DWORD dwOldProtect = 0;
+	VirtualProtectEx(hProcess, (void*)address, 1, PAGE_READWRITE, &dwOldProtect); 
+
+	SIZE_T unused = 0;
+	WriteProcessMemory(hProcess, (void*)address, &bp.origByte, 1, &unused);
+
+	VirtualProtectEx(hProcess, (void*)address, 1, dwOldProtect, &dwOldProtect);
+
+	customBreakpoints.erase(customBreakpoints.begin() + index);
+}
+
+// SetPC
+bool SetProgramCounter(HANDLE hThread, DWORD address)
+{
+	CONTEXT context = {CONTEXT_CONTROL};
+	if(GetThreadContext(hThread, &context))
+	{
+		context.Eip = address;
+		return SetThreadContext(hThread, &context) != 0;
+	}
+	return false;
+}
+
+// GetPC
+DWORD GetProgramCounter(HANDLE hThread)
+{
+	CONTEXT context = {CONTEXT_CONTROL};
+	if(GetThreadContext(hThread, &context))
+		return context.Eip;
+	return 0;
+}
 
 
 
@@ -6611,6 +6695,7 @@ static void DebuggerThreadFuncCleanup(HANDLE threadHandleToClose, HANDLE hProces
 		CloseHandle(hOldProcess);
 	}
 	oldProcessInfos.clear();
+	customBreakpoints.clear();
 
 	terminateRequest = false;
 	debuggerThread = 0; // should happen last
@@ -6742,6 +6827,32 @@ doneterminate:
 	hGameProcess = 0;
 }
 
+void OnMovieStart()
+{
+	finished = false;
+
+	if(movie.version >= 70)
+	{
+		// auto-detect app locale settings based on original movie author's keyboard layout in certain cases
+		tempAppLocale = 0;
+		if(!appLocale && movie.keyboardLayoutName[0] && movie.keyboardLayoutName[4])
+		{
+			DWORD keyboardLayout = 0;
+			sscanf(movie.keyboardLayoutName, "%08X", &keyboardLayout);
+			switch(keyboardLayout & 0xFFFF)
+			{
+			case 1041:
+			case 2052:
+			case 1042:
+			//case 1033:
+				tempAppLocale = (keyboardLayout & 0xFFFF);
+				break;
+			default:
+				break;
+			}
+		}
+	}
+}
 
 // debuggerthreadproc
 static DWORD WINAPI DebuggerThreadFunc(LPVOID lpParam) 
@@ -6754,6 +6865,7 @@ restartgame:
 	STARTUPINFO startupInfo = { sizeof(STARTUPINFO) };
 	PROCESS_INFORMATION processInfo = {0};
 	oldProcessInfos.clear();
+	customBreakpoints.clear();
 
 	s_lastFrameCount = 0;
 	movie.currentFrame = 0;
@@ -6761,8 +6873,8 @@ restartgame:
 		int loadMovieResult = LoadMovieFromFile(moviefilename);
 		if(loadMovieResult < 0 || (playback && loadMovieResult == 0))
 			goto earlyAbort;
+		OnMovieStart();
 	}
-	finished = false;
 
 	DeleteCriticalSection(&g_processMemCS);
 	InitializeCriticalSection(&g_processMemCS);
@@ -6876,8 +6988,10 @@ restartgame:
 	mainMenuNeedsRebuilding = true;
 	ResumeThread(processInfo.hThread);
 
-	BOOL firstBreak = TRUE;
+	//BOOL firstBreak = TRUE;
 	bool postDllMainDone = false;
+	bool mainThreadWaitingForPostDllMain = false;
+	DWORD entrypoint = 0;
 	int exceptionPrintingPaused = 0;
 	//bool redalert = false;
 	lastFrameAdvanceKeyUnheldTime = timeGetTime();
@@ -7112,7 +7226,15 @@ restartgame:
 						else if(MessagePrefixMatch("DENIEDTHREAD"))
 							usedThreadMode = threadMode;
 						else if(MessagePrefixMatch("POSTDLLMAINDONE"))
+						{
 							postDllMainDone = true;
+							if(mainThreadWaitingForPostDllMain)
+							{
+								debugprintf("resuming main thread...\n");
+								ResumeThread(processInfo.hThread);
+								mainThreadWaitingForPostDllMain = false;
+							}
+						}
 						else if(MessagePrefixMatch("SRCDLLVERSION"))
 							CheckSrcDllVersion(atoi(pstr));
 						else if(MessagePrefixMatch("DLLVERSION"))
@@ -7172,6 +7294,30 @@ restartgame:
 			case EXCEPTION_DEBUG_EVENT:
 			{
 				verbosedebugprintf("exception code: 0x%X\n", de.u.Exception.ExceptionRecord.ExceptionCode);
+
+				if(de.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT)
+				{
+					DWORD address = (DWORD)de.u.Exception.ExceptionRecord.ExceptionAddress;
+					int index = GetBreakpointIndex(address, de.dwThreadId);
+					if(index != -1)
+					{
+						debugprintf("hit custom breakpoint at address = 0x%X\n", address);
+						if(address == entrypoint)
+						{
+							RemoveBreakpoint(address, de.dwThreadId, /*GetProcessHandle(processInfo,de)*/hGameProcess);
+							//debugprintf("pc was 0x%X\n", GetProgramCounter(processInfo.hThread));
+							// in this case we can use processInfo.hThread because we know we're dealing with the main thread
+							SetProgramCounter(processInfo.hThread, address);
+							// suspend main thread until PostDllMain finishes
+							if(!postDllMainDone)
+							{
+								debugprintf("suspending main thread until PostDllMain finishes...\n");
+								SuspendThread(processInfo.hThread);
+								mainThreadWaitingForPostDllMain = true;
+							}
+						}
+					}
+				}
 
 				//if(de.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT)
 				//{
@@ -7609,6 +7755,13 @@ restartgame:
 					ASSERT(hGameThreads[de.dwThreadId].handle);
 					hGameThreads[de.dwThreadId].hProcess = de.u.CreateProcessInfo.hProcess;
 					gameThreadIdList.push_back(de.dwThreadId);
+
+					entrypoint = (int)de.u.CreateProcessInfo.lpStartAddress;
+					if(entrypoint && movie.version >= 70)
+					{
+						AddBreakpoint(entrypoint, de.dwThreadId, de.u.CreateProcessInfo.hProcess);
+						debugprintf("entrypoint = 0x%X\n", entrypoint);
+					}
 
 //					if(threadMode == 3)
 //					{
