@@ -7,13 +7,13 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 ||[http://distractionware.com/oracle/Games/Aquarium0.1.zip Aquarium]||60 FPS, Multithreading Disabled|| || || ||Tested on XP||
 ||Bunny Must Die||60 FPS||Fullscreen, 60 FPS, Timer||slow splash screen, should manually delete saves|| ||Tested on XP and 7-x64, videos exist||
 ||[http://www.cavestory.org/info_about.php Cave Story]||50 FPS||Windowed 640x480||fullscreen mode has problems on multi-monitor setups|| ||Tested on XP and 7-x64, videos exist||
-||[http://touhou.wikia.com/wiki/Embodiment_of_Scarlet_Devil Embodiment of Scarlet Devil]||60 FPS, ?||?||?||?||videos exist||
+||[http://en.touhouwiki.net/wiki/Embodiment_of_Scarlet_Devil Embodiment of Scarlet Devil]||60 FPS, ?||?||?||?||videos exist||
 ||[http://zarat.us/tra/offline-games/eversion.html Eversion]||50 FPS, Multithreading Disabled, Pause Helper Disabled|| ||a little unstable, should manually delete save file|| ||Tested on XP and 7-x64||
 ||[http://generic2d.blogspot.com/ Generic (demo)]||?||?|| || ||Tested on XP||
 ||[http://www.remar.se/daniel/herocore.php Hero Core]||40 FPS, Multithreading Disabled|| || || ||Tested on XP||
 ||[http://www.remar.se/daniel/iji.php Iji]||30 FPS, Multithreading Disabled||Fullscreen||can take a while to start up, gamma ramp effects only display in AVI||capture in slow-motion to avoid audio skipping||Tested on XP||
 ||[http://www.cavestory.org/othergames_ikachan.php Ika-Chan]||50 FPS||Fullscreen, 640x480|| || ||Tested on XP||
-||[http://touhou.wikia.com/wiki/Immaterial_and_Missing_Power Immaterial and Missing Power]||60 FPS, ?||?||?||?||videos exist||
+||[http://en.touhouwiki.net/wiki/Immaterial_and_Missing_Power Immaterial and Missing Power]||60 FPS, ?||?||?||?||videos exist||
 ||I wanna be the GB||50 FPS, Multithreading Disabled|| ||?|| ||Tested on XP||
 ||[http://kayin.pyoko.org/iwbtg/ I Wanna Be The Guy]||50 FPS, Multithreading Disabled||slomo version||minor graphics issues on save select screen, unstable intro|| ||Tested on XP, videos exist||
 ||I wanna be the Love Trap||50 FPS, Multithreading Disabled||?||?||?||videos exist||
@@ -21,16 +21,16 @@ Here is a list of games known to work in Hourglass, along with some game-specifi
 ||[http://www.konjak.org/index.php?folder=4&file=11 Legend of Princess]||60 FPS, ?|| ||very unstable, must manually delete save file, chance of desync near start of playback|| ||Tested on XP||
 ||[http://www.sitesled.com/members/bogo/lyle.html Lyle in Cube Sector]||50 FPS, Multithreading Disabled, Skip Lag Frames||v1.04||v1.04 runs slightly slow, v1.05 is missing music|| ||Tested on XP, videos exist||
 ||[http://www.acid-play.com/download/super-mario-xp Mario XP]||50 FPS, !DirectSound Disabled||Windowed|| || ||Tested on XP||
-||[http://touhou.wikia.com/wiki/MegaMari MegaMari]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP, videos exist||
+||[http://en.touhouwiki.net/wiki/MegaMari MegaMari]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP, videos exist||
 ||[http://ninjasenki.com/ Ninja Senki]||60 FPS, Multithreading Disabled|| ||unstable intro, window activation problems|| ||Tested on XP, videos exist||
-||[http://touhou.wikia.com/wiki/Perfect_Cherry_Blossom Perfect Cherry Blossom]||60 FPS, Multithreading Disabled, Japanese App Locale|| ||may need to close Hourglass each time||capture audio-only in fast-forward to avoid audio skipping||Tested on XP, videos exist||
+||[http://en.touhouwiki.net/wiki/Perfect_Cherry_Blossom Perfect Cherry Blossom]||60 FPS, Multithreading Disabled, Japanese App Locale|| ||may need to close Hourglass each time||capture audio-only in fast-forward to avoid audio skipping||Tested on XP, videos exist||
 ||[http://www.16x16.org/2008/12/05/rescue-the-beagles-final-version-released/ Rescue: The Beagles]||60 FPS, Multithreading Disabled|| || || ||Tested on XP||
 ||[http://rks.wikia.com/wiki/Rosenkreuzstilette Rosenkreuzstilette]||60 FPS, !DirectSound Disabled, Wait Sync Asynchronous, Japanese App Locale||?||?|| ||Tested on XP, videos exist||
 ||[http://translate.google.com/translate?hl=en&sl=ja&u=http://maglog.jp/alpha-secret-base/Article313069.html RotateGear]||60 FPS, Multithreading Disabled|| ||must manually clear save files|| ||Tested on XP, videos exist||
 ||!StickMan||60 FPS, !DirectSound Disabled|| ||?|| ||Tested on XP, videos exist||
 ||[http://daidai.moo.jp/dl.html Suguri]||?||?||?||?||Tested on XP, videos exist||
-||[http://touhou.wikia.com/wiki/Super_Marisa_Land Super Marisa Land]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
-||[http://touhou.wikia.com/wiki/Super_Marisa_World Super Marisa World]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
+||[http://en.touhouwiki.net/wiki/Super_Marisa_Land Super Marisa Land]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
+||[http://en.touhouwiki.net/wiki/Super_Marisa_World Super Marisa World]||60 FPS, !DirectSound Disabled|| || || ||Tested on XP||
 ||Syobon Action||?, Japanese App Locale||?||?||?||Tested on XP, videos exist||
 ||[http://www.bombergames.net/sorr_project/ Streets of Rage Remake]||60 FPS, Multithreading Disabled|| ||must manually clear save files|| ||Tested on XP||
 ||[http://www.asahi-net.or.jp/~cs8k-cyu/windows/tf_e.html Tumiki Fighters]||60 FPS, Multithreading Disabled|| ||sometimes need to move window after reactivating it|| ||Tested on XP||
