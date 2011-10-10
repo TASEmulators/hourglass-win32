@@ -690,15 +690,26 @@ public:
 				// if we're in the bad region then wait
 				if(contiguousMixOutBufOffset > play && contiguousMixOutBufOffset < write)
 				{
-					verbosedebugprintf("WAITING FOR SOUND TO REALIGN %d (%d, %d)\n", contiguousMixOutBufOffset, play, write);
+					// TODO: figure out why contiguousMixOutBufSize < dwBufferBytes... in the meantime, use the latter here
+					DSBCAPS caps = { sizeof(DSBCAPS) };
+					s_myMixingOutputBuffer->GetCaps(&caps);
+					
+					// calculate an "ideal" position which is as far away from the bad region as possible.
+					// (the actually-ideal position to be in depends on whether we're generating sound faster or slower than the sound buffer is being consumed,
+					// but we use this average position to avoid needing to determine that.)
+					DWORD idealPosition = ((play + write + caps.dwBufferBytes) >> 1);
+					if(idealPosition > caps.dwBufferBytes)
+						idealPosition -= caps.dwBufferBytes;
+					int distFromIdeal = contiguousMixOutBufOffset - idealPosition;
+					if(distFromIdeal < 0)
+						distFromIdeal += caps.dwBufferBytes;
 
-					// this seems to be a large enough wait to get us far enough out of the bad region.
-					// waiting the minimum amount (in a loop or whatever) would not be good because
-					// if we were running too fast then we would be in the same situation very soon.
-					Sleep(30);
-
-					s_myMixingOutputBuffer->GetCurrentPosition(&play, &write);
-					verbosedebugprintf("WAITED FOR SOUND TO REALIGN %d (%d, %d)\n", contiguousMixOutBufOffset, play, write);
+					// wait until the ideal position should have moved to our offset
+					DWORD waitTime = distFromIdeal * 1000 / contiguousMixOutBufFormat->nAvgBytesPerSec;
+					verbosedebugprintf("WAITING FOR SOUND TO REALIGN (waitTime=%d, offset=%d, play=%d, write=%d, ideal=%d)\n", waitTime, contiguousMixOutBufOffset, play, write, idealPosition);
+					if(waitTime > 100)
+						waitTime = 100;
+					Sleep(waitTime);
 				}
 			}
 
