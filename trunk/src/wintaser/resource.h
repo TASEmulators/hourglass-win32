@@ -17,6 +17,7 @@
 #define IDD_RAMWATCH                    132
 #define IDD_PROMPT                      140
 #define IDD_HOTKEYS                     141
+#define IDD_SPLICE                      142
 #define IDC_RADIO_READONLY              1003
 #define IDC_RADIO_READWRITE             1004
 #define IDC_EDIT_MOVIE                  1005
@@ -63,7 +64,8 @@
 #define IDC_HOTKEYLIST                  1044
 #define ID_TOGGLE_MOVIE_READONLY        1045
 #define IDC_TOPLEFTCONTROL              1046
-#define IDC_CHECK_MUTE                        1047
+#define IDC_CHECK_MUTE                  1047
+#define IDC_EDIT_SPLICESOURCESTART      1048
 #define RAMMENU_FILE_AUTOLOAD           1218
 #define RAMMENU_FILE_APPEND             1220
 #define RAMMENU_FILE_SAVEWINDOW         3001
@@ -287,6 +289,7 @@
 #define ID_FILES_RESUMEMOVAS            40313
 #define ID_FILES_OPENMOV                40314
 #define ID_FILES_RESUMERECORDING        40315
+#define ID_FILES_SPLICE                 40316
 #define ID_AVI_NONE                     40330
 #define ID_AVI_BOTH                     40331
 #define ID_AVI_VIDEO                    40332

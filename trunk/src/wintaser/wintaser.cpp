@@ -276,16 +276,19 @@ HWND RamSearchHWnd = NULL; // modeless dialog
 HWND RamWatchHWnd = NULL; // modeless dialog
 HWND HotkeyHWnd = NULL;
 bool HotkeyHWndIsHotkeys = true;
+HWND SpliceHWnd = NULL; // modeless dialog
 
 
 
 
 // like MessageBox but gives us focus for the message and restores focus afterward
-int CustomMessageBox(LPCSTR lpText, LPCSTR lpCaption, UINT uType)
+int CustomMessageBox(LPCSTR lpText, LPCSTR lpCaption, UINT uType, HWND parent=NULL)
 {
+	if(!parent)
+		parent = hWnd;
 	HWND prevwnd = GetForegroundWindow();
-	SetForegroundWindow(hWnd);
-	int rv = MessageBox(hWnd, lpText, lpCaption, uType);
+	SetForegroundWindow(parent);
+	int rv = MessageBox(parent, lpText, lpCaption, uType);
 	SetForegroundWindow(prevwnd);
 	return rv;
 }
@@ -682,7 +685,6 @@ bool fastforward = false;
 static bool temporaryUnpause = false;
 static bool requestedCommandReenter = false;
 static bool cannotSuspendForCommand = false;
-static bool stop_button_stopping = false;
 static bool goingsuperfast = false;
 
 static bool runningNow = false;
@@ -879,7 +881,7 @@ const char* GetExeFilenameWithoutPath()
 
 // TODO: save incrementally?, and work on the format
 #define MAGIC 0x02775466 // "\02wTf"
-static void SaveMovieToFile(const char* filename)
+static void SaveMovieToFile(Movie& movie, const char* filename)
 {
 	bool hadUnsaved = unsaved;
 	unsaved = false;
@@ -961,9 +963,9 @@ static void SaveMovieToFile(const char* filename)
 }
 
 // returns 1 on success, 0 on failure, -1 on cancel
-static int LoadMovieFromFile(const char* filename, bool forPreview=false)
+static int LoadMovieFromFile(/*out*/ Movie& movie, const char* filename, bool forPreview=false, bool secondaryProcessing=false)
 {
-	if(unsaved && forPreview)
+	if(unsaved && forPreview && !secondaryProcessing)
 		return 0; // never replace movie data with a preview if we haven't saved it yet
 
 	FILE* file = filename && *filename ? fopen(filename, "rb") : NULL;
@@ -1021,7 +1023,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		fseek(file, 1024, SEEK_SET);
 
 		movie.currentFrame = 0;
-		movie.rerecordCount = (playback || forPreview) ? rerecords : 0;
+		movie.rerecordCount = (playback || forPreview || secondaryProcessing) ? rerecords : 0;
 		movie.frames.resize(length);
 		strcpy(movie.exefname, exefname);
 
@@ -1036,26 +1038,30 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		failed = true;
 	}
 
-	unsaved = false; // either we just opened the movie and have no changes to save yet, or we just failed and have nothing to save at all
+	if(!forPreview && !secondaryProcessing)
+		unsaved = false; // either we just opened the movie and have no changes to save yet, or we just failed and have nothing to save at all
 	fclose(file);
-	UpdateFrameCountDisplay(movie.currentFrame, 1);
-	UpdateRerecordCountDisplay();
+	if(!secondaryProcessing)
+	{
+		UpdateFrameCountDisplay(movie.currentFrame, 1);
+		UpdateRerecordCountDisplay();
+	}
 
 	if(failed)
 	{
-		if(playback && !forPreview)
+		if(playback && !forPreview && !secondaryProcessing)
 			CustomMessageBox("The movie file is invalid or empty.", "Unable to play movie", MB_OK | MB_ICONERROR);
 		return 0;
 	}
 
-	if(!playback && !forPreview && (length + rerecords*4 > 1800))
+	if(!playback && !forPreview && !secondaryProcessing && (length + rerecords*4 > 1800))
 	{
 		int result = CustomMessageBox("Really record over this movie?", "Record Movie", MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON1);
 		if(result == IDCANCEL)
 			return -1;
 	}
 
-	if(fpsp1 > 0 && (playback || forPreview))
+	if(fpsp1 > 0 && (playback || forPreview) && !secondaryProcessing)
 	{
 		DWORD movieFramerate = fpsp1 - 1;
 		if(playback && !forPreview && movieFramerate != framerate)
@@ -1072,7 +1078,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		SetWindowText(GetDlgItem(hWnd, IDC_EDIT_FPS), str);
 	}
 
-	if((playback || forPreview))
+	if((playback || forPreview) && !secondaryProcessing)
 	{
 		DWORD movieInitialTime = itp1 ? (itp1 - 1) : 6000;
 		if(playback && !forPreview && movieInitialTime != initialTime)
@@ -1089,7 +1095,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		SetWindowText(GetDlgItem(hWnd, IDC_EDIT_SYSTEMCLOCK), str);
 	}
 
-	if(playback && !forPreview && crc && crcVerifyEnabled)
+	if(playback && !forPreview && crc && crcVerifyEnabled && !secondaryProcessing)
 	{
 		int curcrc = CalcExeCrc();
 		if(crc != curcrc)
@@ -1115,7 +1121,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		}
 	}
 
-	if(playback && !forPreview && version != SRCVERSION
+	if(playback && !forPreview && version != SRCVERSION && !secondaryProcessing
 #ifdef _DEBUG
 		// SubWCRev doesn't run by default in debug builds,
 		// so ignore it if the SRCVERSION number is outdated
@@ -1152,6 +1158,13 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		// in the future: if it's known whether certain versions sync with the current version, set probablyDesync depending on the version numbers.
 		// and maybe add more specific warning messages, if warranted
 
+		bool assumeOK = false;
+#if SRCVERSION == 72 || SRCVERSION == 73
+		if(version == 71)
+			assumeOK = true;
+#endif
+
+
 		char str [1024];
 		sprintf(str,
 			"This movie was recorded using a different version of Hourglass.\n"
@@ -1170,7 +1183,11 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 			(myVersion>version)?"Do you want to try playing the movie normally?":"Play the movie anyway?",
 			(myVersion>version)?"(\"No\" enables backward compatibility mode, but can cause old bugs to reappear.)":""
 		);
-		int result = CustomMessageBox(str, "Movie Version", ((myVersion>version) ? MB_YESNOCANCEL : MB_YESNO) | (probablyDesync?MB_ICONWARNING:MB_ICONQUESTION) | MB_DEFBUTTON1);
+		int result;
+		if(assumeOK)
+			result = IDYES;
+		else
+			result = CustomMessageBox(str, "Movie Version", ((myVersion>version) ? MB_YESNOCANCEL : MB_YESNO) | (probablyDesync?MB_ICONWARNING:MB_ICONQUESTION) | MB_DEFBUTTON1);
 		if(myVersion>version)
 		{
 			if(result == IDYES)
@@ -1193,7 +1210,7 @@ static int LoadMovieFromFile(const char* filename, bool forPreview=false)
 		movie.version = version;
 	}
 
-	if((playback || forPreview))
+	if((playback || forPreview) && !secondaryProcessing)
 	{
 		if(movie.version >= 60)
 		{
@@ -1588,7 +1605,7 @@ void SaveGameStatePhase2(int slot)
 	stateLoaded = false;
 	SendTASFlags();
 
-	if(finished)
+	if(finished && !recoveringStale)
 	{
 		debugprintf("DESYNC WARNING: tried to save state while movie was \"Finished\"\n");
 		const char* str = "Warning: The movie is in \"Finished\" status.\n"
@@ -1739,7 +1756,7 @@ void SaveGameStatePhase2(int slot)
 
 	// TEMP: save movie file (temp because should be incremental, not only on savestate)
 	if(unsaved)
-		SaveMovieToFile(moviefilename);
+		SaveMovieToFile(movie, moviefilename);
 
 	// done
 	state.valid = true;
@@ -1865,6 +1882,9 @@ static void RecoverStaleState(int slot)
 		nextLoadRecords = false;
 		LoadGameStatePhase2(bestStateToUse);
 		nextLoadRecords = prevNextLoadRecords;
+		// I thought this was unnecessary but maybe it fixes a desync...
+		movie.frames = state.movie.frames;
+		playback = true;
 	}
 	if(bestStateToUse == -1)
 	{
@@ -2089,6 +2109,7 @@ void LoadGameStatePhase2(int slot)
 	}
 
 	// load movie
+	bool wasFinished = finished;
 	if(nextLoadRecords || wasRecoveringStale) // switch to recording / read+write
 	{
 		int rerecords = movie.rerecordCount;
@@ -2148,7 +2169,7 @@ void LoadGameStatePhase2(int slot)
 			}
 		}
 	}
-	finished = movie.currentFrame > (int)movie.frames.size();
+	//finished = movie.currentFrame > (int)movie.frames.size();
 	SendTASFlags();
 
 	UpdateFrameCountDisplay(movie.currentFrame, 1);
@@ -2156,7 +2177,7 @@ void LoadGameStatePhase2(int slot)
 	Update_RAM_Search();
 
 	if(unsaved)
-		SaveMovieToFile(moviefilename);
+		SaveMovieToFile(movie, moviefilename);
 
 	// done... actually that wasn't so bad
 }
@@ -2316,6 +2337,14 @@ void RecordLocalInputs()
 		memset(localGameInputKeys, 0, sizeof(localGameInputKeys));
 	}
 
+#if 0 // TEMP HACK until proper autofire implemented
+	bool ZXmode = (GetAsyncKeyState('Q') & 0x8000) != 0;
+	if(ZXmode) {
+		localGameInputKeys[(movie.currentFrame & 1) ? 'Z' : 'X'] = 1;
+	}
+#endif
+
+
 	MovieFrame frame = {0};
 	int frameByte = 0;
 
@@ -2345,6 +2374,95 @@ void RecordLocalInputs()
 	}
 }
 
+#if 0
+void MultitrackHack()
+{
+// TEMP HACK until configurable multitrack implemented
+	if((GetAsyncKeyState('M') & 0x8000) == 0)
+	{
+		// not activated this frame
+		return;
+	}
+
+	if((unsigned int)movie.currentFrame >= (unsigned int)movie.frames.size())
+	{
+		return;
+	}
+
+
+	// unpack frame of input
+	UncompressedMovieFrame existingMovieKeyboardState = {0};
+	{
+		MovieFrame frame = movie.frames[movie.currentFrame];
+		for(int i = 0; i < sizeof(frame.heldKeyIDs); i++)
+		{
+			int vk = frame.heldKeyIDs[i];
+			if(!vk)
+				continue;
+			existingMovieKeyboardState.keys[vk] = true;
+		}
+	}
+
+
+	extern unsigned char localGameInputKeys [256];
+
+	if(InputHasFocus(false))
+	{
+		Update_Input(NULL, true, false, false, false);
+	}
+	else
+	{
+		memset(localGameInputKeys, 0, sizeof(localGameInputKeys));
+	}
+
+
+	unsigned char mergedGameInputKeys [256];
+	memcpy(mergedGameInputKeys, existingMovieKeyboardState.keys, sizeof(mergedGameInputKeys));
+
+
+	// TEMP HACK until configurable multitrack implemented
+	{
+		mergedGameInputKeys['A'] = localGameInputKeys['A'];
+		mergedGameInputKeys['S'] = localGameInputKeys['S'];
+		mergedGameInputKeys['X'] = localGameInputKeys['X'];
+		if(localGameInputKeys['Z'])
+			mergedGameInputKeys['Z'] = 1;
+		if(!localGameInputKeys[VK_UP] || !localGameInputKeys[VK_DOWN])
+		{
+			mergedGameInputKeys[VK_UP] = localGameInputKeys[VK_UP];
+			mergedGameInputKeys[VK_DOWN] = localGameInputKeys[VK_DOWN];
+		}
+	}
+
+#if 1 // TEMP HACK until proper autofire implemented
+	bool ZXmode = (GetAsyncKeyState('Q') & 0x8000) != 0;
+	if(ZXmode && !(movie.currentFrame & 1)) {
+		mergedGameInputKeys['X'] = 1;
+	}
+#endif
+
+
+	MovieFrame frame = {0};
+	int frameByte = 0;
+
+	// pack frame of input
+	for(int i = 1; i < 256 && frameByte < sizeof(frame.heldKeyIDs); i++)
+	{
+		if(mergedGameInputKeys[i])
+		{
+			frame.heldKeyIDs[frameByte] = i;
+			frameByte++;
+		}
+	}
+
+	// apply merged input back to movie
+	//if((unsigned int)movie.currentFrame < (unsigned int)movie.frames.size())
+	{
+		movie.frames[movie.currentFrame] = frame;
+		//unsaved = true;
+	}
+}
+#endif
 
 void InjectCurrentMovieFrame() // playback ... or recording, now
 {
@@ -2822,6 +2940,7 @@ void CheckDialogChanges(int frameCount)
 		SendMessage(GetDlgItem(hWnd, IDC_EDIT_RERECORDS), EM_SETREADONLY, started, 0);
 		EnableWindow(GetDlgItem(hWnd, IDC_BUTTON_MOVIEBROWSE), !started);
 		EnableWindow(GetDlgItem(hWnd, IDC_BUTTON_GAMEBROWSE), !started);
+		mainMenuNeedsRebuilding = true;
 		if(frameCount >= 0)
 			UpdateFrameCountDisplay(frameCount, 1);
 		displayed_checkdialog_inited = 0;
@@ -4361,6 +4480,8 @@ void FrameBoundary(const char* frameInfo, int threadId)
 	{
  		if(!playback)
 			RecordLocalInputs();
+		//else
+		//	MultitrackHack();
 		InjectCurrentMovieFrame();
 		if(!(frameCount & (frameCount-1)))
 			DoPow2Logic(frameCount);
@@ -6870,7 +6991,7 @@ restartgame:
 	s_lastFrameCount = 0;
 	movie.currentFrame = 0;
 	{
-		int loadMovieResult = LoadMovieFromFile(moviefilename);
+		int loadMovieResult = LoadMovieFromFile(movie, moviefilename);
 		if(loadMovieResult < 0 || (playback && loadMovieResult == 0))
 			goto earlyAbort;
 		OnMovieStart();
@@ -7614,12 +7735,13 @@ restartgame:
 							if(!skipDialog)
 								CustomMessageBox(msg, "CRASH", MB_OK|MB_ICONERROR);
 #endif
+							recoveringStale = false;
 						}
 						requestedCommandReenter = false; // maybe fixes something?
 						if(de.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_NONCONTINUABLE_EXCEPTION)
 						{
 							if(unsaved)
-								SaveMovieToFile(moviefilename);
+								SaveMovieToFile(movie, moviefilename);
 
 							goto done;
 						}
@@ -7823,7 +7945,7 @@ restartgame:
 				// for now we assume we're all done whenever any process or subprocess exits.
 
 				if(unsaved)
-					SaveMovieToFile(moviefilename);
+					SaveMovieToFile(movie, moviefilename);
 
 				//UnregisterModuleInfo(de.u.ExitProcess.lpBaseOfImage, hProcess, filename);
 
@@ -8064,7 +8186,7 @@ void PrepareForExit()
 	if(aviMode) // hack, sometimes ~AviFrameQueue has trouble terminating the thread, no sense waiting for it if there's no avi and we're exiting anyway
 		CloseAVI();
 	if(unsaved)
-		SaveMovieToFile(moviefilename);
+		SaveMovieToFile(movie, moviefilename);
 	Save_Config();
 	TerminateDebuggerThread(6500);
 	WaitForOtherThreadToTerminate(hAfterDebugThreadExitThread, 5000);
@@ -8407,7 +8529,7 @@ static void EnableDisablePlayRecordButtons(HWND hDlg)
 	// preview data from movie
 	if(exists && !started)
 	{
-		LoadMovieFromFile(moviefilename, true);
+		LoadMovieFromFile(movie, moviefilename, true);
 		
 		UpdateFrameCountDisplay(movie.currentFrame, 1);
 
@@ -8474,6 +8596,166 @@ void BringGameWindowToForeground()
 // 
 //    return rv;
 //}
+
+void DoSplice(const char* sourceFilename, unsigned int srcStartFrame, unsigned int srcEndFrame, unsigned int dstStartFrame, unsigned int dstEndFrame)
+{
+	Movie source = Movie();
+	if(LoadMovieFromFile(source, sourceFilename, false, true) <= 0)
+	{
+		CustomMessageBox("Failed to load source movie file.\nNo changes were made.", "Splice Error", MB_OK | MB_ICONERROR, SpliceHWnd);
+		return;
+	}
+
+	unsigned int numDstFrames = movie.frames.size();
+	unsigned int numSrcFrames = source.frames.size();
+
+	if(srcStartFrame >= numSrcFrames)
+		srcStartFrame = 0;
+	if(srcEndFrame > numSrcFrames)
+		srcEndFrame = numSrcFrames;
+	if(dstStartFrame > numDstFrames)
+		dstStartFrame = 0;
+	if(dstEndFrame > numDstFrames)
+		dstEndFrame = numDstFrames;
+
+	unsigned int src = srcStartFrame;
+	unsigned int dst = dstStartFrame;
+	while(src != srcEndFrame && dst != dstEndFrame)
+	{
+		//debugprintf("copying %d to %d\n", src, dst);
+		movie.frames[dst++] = source.frames[src++];
+	}
+	if(src != srcEndFrame)
+	{
+		//debugprintf("copying %d-%d to %d\n", src, srcEndFrame, dst);
+		movie.frames.insert(movie.frames.begin() + dst, source.frames.begin() + src, source.frames.begin() + srcEndFrame);
+	}
+	else if(dst != dstEndFrame)
+	{
+		//debugprintf("deleting %d-%d\n", dst, dstEndFrame);
+		movie.frames.erase(movie.frames.begin() + dst, movie.frames.begin() + dstEndFrame);
+	}
+
+	unsaved = true;
+}
+
+void SplitToValidPath(const char* initialPath, const char* defaultDir, char* filename, char* directory);
+BOOL SetWindowTextAndScrollRight(HWND hEdit, LPCSTR lpString);
+
+LRESULT CALLBACK SpliceProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	switch(uMsg)
+	{
+		case WM_INITDIALOG: {
+
+			RECT r;
+			GetWindowRect(hWnd, &r);
+			int dx1 = (r.right - r.left) / 2;
+			int dy1 = (r.bottom - r.top) / 2;
+
+			RECT r2;
+			GetWindowRect(hDlg, &r2);
+			int dx2 = (r2.right - r2.left) / 2;
+			int dy2 = (r2.bottom - r2.top) / 2;
+
+			// push it away from the main window if we can
+			const int width = (r.right-r.left);
+			const int height = (r.bottom - r.top);
+			const int width2 = (r2.right-r2.left); 
+			if(r.left+width2 + width < GetSystemMetrics(SM_CXSCREEN))
+			{
+				r.right += width;
+				r.left += width;
+			}
+			else if((int)r.left - (int)width2 > 0)
+			{
+				r.right -= width2;
+				r.left -= width2;
+			}
+			//-------------------------------------------------------------------------------------
+			SetWindowPos(hDlg, NULL, r.left, r.top, NULL, NULL, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW);
+			
+			DragAcceptFiles(hDlg, TRUE);
+
+			return true;
+			//break;
+		}
+		
+		case WM_COMMAND:
+			switch(LOWORD(wParam))
+			{
+				case IDC_BUTTON_MOVIEBROWSE:
+				{
+					char filename [MAX_PATH+1] = {0};
+					char directory [MAX_PATH+1] = {0};
+					SplitToValidPath(moviefilename, thisprocessPath, filename, directory);
+					NormalizePath(moviefilename, moviefilename);
+					OPENFILENAME ofn = {sizeof(OPENFILENAME)};
+					ofn.hwndOwner = hWnd;
+					ofn.hInstance = hInst;
+					ofn.lpstrFilter = "Windows TAS Files\0*.wtf;*.wtf2;*.wtf3;*.wtf4;*.wtf5;*.wtf6;*.wtf7;*.wtf8;*.wtf9;*.wtf*;*.hgm\0All Files\0*.*\0\0";
+					ofn.nFilterIndex = 1;
+					ofn.lpstrFile = filename;
+					ofn.nMaxFile = MAX_PATH;
+					ofn.lpstrInitialDir = directory;
+					ofn.lpstrTitle = "Choose Source Movie File";
+					ofn.Flags = OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
+					ofn.lpstrDefExt = "wtf";
+					if(GetOpenFileName(&ofn))
+						SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
+				}	return true;
+				case IDOK:
+					if(paused)
+					{
+						char filename [MAX_PATH+1] = {0};
+						GetWindowText(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename, MAX_PATH);
+						NormalizePath(filename, filename);
+
+						char sourceStartFrameText [64];
+						GetWindowText(GetDlgItem(hDlg, IDC_EDIT_SPLICESOURCESTART), sourceStartFrameText, sizeof(sourceStartFrameText));
+						int sourceStartFrame = atoi(sourceStartFrameText);
+
+						DoSplice(filename, sourceStartFrame-1, -1, movie.currentFrame, -1);
+					}
+					else
+					{
+						CustomMessageBox("The movie must already be paused on the frame you want to splice into.\nNo changes were made.", "Splice Error", MB_OK | MB_ICONERROR, SpliceHWnd);
+					}
+					//SpliceHWnd = NULL;
+					//DragAcceptFiles(hDlg, FALSE);
+					//EndDialog(hDlg, true);
+					return true;
+				case IDCANCEL:
+					SpliceHWnd = NULL;
+					DragAcceptFiles(hDlg, FALSE);
+					EndDialog(hDlg, true);
+					return true;
+			}
+			break;
+		
+		case WM_CLOSE:
+			SpliceHWnd = NULL;
+			DragAcceptFiles(hDlg, FALSE);
+			EndDialog(hDlg, true);
+			return true;
+
+		case WM_DROPFILES:
+		{
+			char filename [MAX_PATH+1] = {0};
+			HDROP hDrop = (HDROP)wParam;
+			DragQueryFile(hDrop, 0, filename, MAX_PATH);
+			DragFinish(hDrop);
+
+			char* slash = max(strrchr(filename, '\\'), strrchr(filename, '/'));
+			char* dot = strrchr(filename, '.');
+			if(slash<dot)
+				if(!_strnicmp(dot, ".wtf", 4) || !_strnicmp(dot, ".hgm", 4)) // windows TAS file (input movie)
+					SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
+		}	break;
+	}
+
+	return false;
+}
 
 BOOL DirectoryExists(const char* path)
 {
@@ -9370,20 +9652,22 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						EnableWindow(GetDlgItem(hDlg, IDC_BUTTON_STOP), false);
 						CloseAVI();
 						if(unsaved)
-							SaveMovieToFile(moviefilename);
+							SaveMovieToFile(movie, moviefilename);
 						Save_Config();
 						//CheckDlgButton(hDlg, IDC_AVIVIDEO, aviMode & 1);
 						//CheckDlgButton(hDlg, IDC_AVIAUDIO, aviMode & 2);
 						bool wasPlayback = playback;
 						TerminateDebuggerThread(12000);
 						if(unsaved)
-							SaveMovieToFile(moviefilename);
+							SaveMovieToFile(movie, moviefilename);
 						terminateRequest = false;
 						if(afterDebugThreadExit)
 							OnAfterDebugThreadExit();
 						requestedCommandReenter = false;
 						if(lParam == 42)
 							goto case_IDC_BUTTON_PLAY;
+						else
+							recoveringStale = false;
 					}
 					break;
 				case_IDC_BUTTON_RECORD:
@@ -9490,7 +9774,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						if(isSave ? GetSaveFileName(&ofn) : GetOpenFileName(&ofn))
 						{
 							if(started && (!playback || nextLoadRecords))
-								SaveMovieToFile(moviefilename);
+								SaveMovieToFile(movie, moviefilename);
 
 							SetWindowTextAndScrollRight(GetDlgItem(hDlg, IDC_EDIT_MOVIE), filename);
 
@@ -9508,7 +9792,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 								if(command == ID_FILES_RESUMEMOVAS)
 								{
 									playback = false;
-									SaveMovieToFile(moviefilename);
+									SaveMovieToFile(movie, moviefilename);
 								}
 							}
 						}
@@ -9529,6 +9813,11 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 						UpdateFrameCountDisplay(movie.currentFrame, 1);
 					}
 					break;
+				case ID_FILES_SPLICE:
+					if(!SpliceHWnd)
+						SpliceHWnd = CreateDialog(hInst, MAKEINTRESOURCE(IDD_SPLICE), hWnd, (DLGPROC) SpliceProc);
+					else
+						SetForegroundWindow(SpliceHWnd);
 				case IDC_EDIT_COMMANDLINE:
 					if(HIWORD(wParam) == EN_CHANGE)
 					{
