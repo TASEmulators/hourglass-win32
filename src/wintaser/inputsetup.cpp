@@ -220,6 +220,7 @@ static InputButton s_hotkeyButtons [] =
 	{MOD_CONTROL,           'R',       ID_FILES_RECORDMOV,        0, NULL, "Start Recording To", "RecordNewMovieKey"},
 	{MOD_NONE,          VK_NONE,       ID_FILES_RESUMERECORDING,  0, NULL, "Resume Recording From Now", "ResumeRecordingKey"},
 	{MOD_NONE,          VK_NONE,       ID_FILES_RESUMEMOVAS,      0, NULL, "Resume Recording To", "ResumeToKey"},
+	{MOD_NONE,          VK_NONE,       ID_FILES_SPLICE,           0, NULL, "Splice Movie", "SpliceMovieKey"},
 	{MOD_CONTROL|MOD_SHIFT, 'C',       ID_FILES_STOP_RELAY,       0, NULL, "Stop Running", "StopRunningKey"},
 	{MOD_NONE,          VK_NONE,       ID_FILES_QUIT,             0, NULL, "Exit " /*"winTASer"*/ "Hourglass", "ExitKey"},
 	{MOD_NONE,        VK_ESCAPE,       ID_TIME_TOGGLE_PAUSE,      0, NULL, "Pause/Unpause", "PauseKey0"},
@@ -2234,6 +2235,7 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 	MENU_L(Files, i++, Flags | ((started||!exeFileExists)?MF_GRAYED:0), ID_FILES_RECORDMOV, "\tCtrl+R", "&Record New Movie...", started ? "must stop running first" : "must open an executable first");
 	MENU_L(Files, i++, Flags | (!started?MF_GRAYED:0), ID_FILES_RESUMEMOVAS, "", (playback||!started) ? "Resume Recording to &Different File..." : "Continue Recording to &Different File...", "must be running");
 	MENU_L(Files, i++, Flags | ((!started||!playback||finished)?MF_GRAYED:0), ID_FILES_RESUMERECORDING, "", "Resume Recording from Now", "movie must be playing");
+	MENU_L(Files, i++, Flags | ((!started||finished)?MF_GRAYED:0), ID_FILES_SPLICE, "", "Splice...", "movie must be playing or recording");
 
 	InsertMenu(Files, i++, MF_SEPARATOR, NULL, NULL);
 	//MENU_L(Files, i++, Flags, ID_FILES_SAVECONFIG, "", "Save Config", 0);
