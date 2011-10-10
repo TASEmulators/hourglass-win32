@@ -1159,8 +1159,8 @@ static int LoadMovieFromFile(/*out*/ Movie& movie, const char* filename, bool fo
 		// and maybe add more specific warning messages, if warranted
 
 		bool assumeOK = false;
-#if SRCVERSION == 72 || SRCVERSION == 73
-		if(version == 71)
+#if SRCVERSION >= 72 && SRCVERSION <= 75
+		if(version >= 71 && version < SRCVERSION)
 			assumeOK = true;
 #endif
 
