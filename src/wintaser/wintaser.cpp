@@ -686,6 +686,7 @@ static bool temporaryUnpause = false;
 static bool requestedCommandReenter = false;
 static bool cannotSuspendForCommand = false;
 static bool goingsuperfast = false;
+static bool frameAdvanceHeld = false;
 
 static bool runningNow = false;
 CRITICAL_SECTION g_processMemCS;
@@ -1159,7 +1160,7 @@ static int LoadMovieFromFile(/*out*/ Movie& movie, const char* filename, bool fo
 		// and maybe add more specific warning messages, if warranted
 
 		bool assumeOK = false;
-#if SRCVERSION >= 72 && SRCVERSION <= 76
+#if SRCVERSION >= 71 && SRCVERSION <= 77 // a range of definitely sync-compatible versions
 		if(version >= 71 && version < SRCVERSION)
 			assumeOK = true;
 #endif
@@ -2279,6 +2280,7 @@ void SendTASFlags()
 		initialTime,
 		debugPrintMode,
 		timescale, timescaleDivisor,
+		frameAdvanceHeld,
 		allowLoadInstalledDlls, allowLoadUxtheme,
 		storeVideoMemoryInSavestates,
 		appLocale ? appLocale : tempAppLocale,
@@ -2677,15 +2679,18 @@ void CheckHotkeys(int frameCount, bool frameSynced)
 	static bool FrameAdvanceKeyDown2_prev = false;
 	bool FrameAdvanceKeyDown = FrameAdvanceKeyDown1 || FrameAdvanceKeyDown2;
 	bool FrameAdvanceKeyDown_justPressed = false;
+	bool FrameAdvanceKeyDown_justReleased = false;
 	if(FrameAdvanceKeyDown1_prev != FrameAdvanceKeyDown1)
 	{
 		FrameAdvanceKeyDown1_prev = FrameAdvanceKeyDown1;
 		FrameAdvanceKeyDown_justPressed = FrameAdvanceKeyDown1;
+		FrameAdvanceKeyDown_justReleased = !FrameAdvanceKeyDown1;
 	}
 	if(FrameAdvanceKeyDown2_prev != FrameAdvanceKeyDown2)
 	{
 		FrameAdvanceKeyDown2_prev = FrameAdvanceKeyDown2;
 		FrameAdvanceKeyDown_justPressed = FrameAdvanceKeyDown2;
+		FrameAdvanceKeyDown_justReleased = !FrameAdvanceKeyDown2;
 	}
 
 	int time = timeGetTime();
@@ -2722,10 +2727,22 @@ void CheckHotkeys(int frameCount, bool frameSynced)
 				}
 			}
 		}
+
+		if(FrameAdvanceKeyDown_justPressed)
+		{
+			frameAdvanceHeld = true;
+			SendTASFlags();
+		}
 	}
 	else
 	{
 		lastFrameAdvanceKeyUnheldTime = time;
+
+		if(FrameAdvanceKeyDown_justReleased)
+		{
+			frameAdvanceHeld = false;
+			SendTASFlags();
+		}
 	}
 	//if(paused && CAPTUREINFO_TYPE_NONE_SUBSEQUENT
 }

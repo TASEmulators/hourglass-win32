@@ -707,8 +707,10 @@ public:
 					// wait until the ideal position should have moved to our offset
 					DWORD waitTime = distFromIdeal * 1000 / contiguousMixOutBufFormat->nAvgBytesPerSec;
 					verbosedebugprintf("WAITING FOR SOUND TO REALIGN (waitTime=%d, offset=%d, play=%d, write=%d, ideal=%d)\n", waitTime, contiguousMixOutBufOffset, play, write, idealPosition);
-					if(waitTime > 100)
-						waitTime = 100;
+					bool notFullSpeed = tasflags.frameAdvanceHeld || (tasflags.timescale != tasflags.timescaleDivisor) || (tasflags.aviMode & 1);
+					DWORD maxWait = notFullSpeed ? 10 : 100;
+					if(waitTime > maxWait)
+						waitTime = maxWait;
 					Sleep(waitTime);
 				}
 			}
