@@ -30,6 +30,7 @@ struct TasFlags
 	int initialTime;
 	int debugPrintMode;
 	int timescale, timescaleDivisor;
+	int frameAdvanceHeld;
 	int allowLoadInstalledDlls, allowLoadUxtheme;
 	int storeVideoMemoryInSavestates;
 	int appLocale;
