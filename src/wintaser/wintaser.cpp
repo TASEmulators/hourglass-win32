@@ -1159,7 +1159,7 @@ static int LoadMovieFromFile(/*out*/ Movie& movie, const char* filename, bool fo
 		// and maybe add more specific warning messages, if warranted
 
 		bool assumeOK = false;
-#if SRCVERSION >= 72 && SRCVERSION <= 75
+#if SRCVERSION >= 72 && SRCVERSION <= 76
 		if(version >= 71 && version < SRCVERSION)
 			assumeOK = true;
 #endif
@@ -3692,7 +3692,7 @@ struct AviFrameQueue
 					aviFrameCount++;
 					if(!bytesWritten)
 					{
-						if(aviEmptyFrameCount == 0 && (aviMode & 2) && aviFrameCount < 300)
+						if(aviEmptyFrameCount == 0 && (aviMode & 2) && aviFrameCount < 300 && !aviSplitCount)
 							CustomMessageBox("The video encoder you chose is outputting some null frames.\nThis may confuse video players into adding delays and letting the sound stream get out of sync.", "Warning", MB_OK | MB_ICONWARNING);
 						aviEmptyFrameCount++;;
 					}
@@ -4385,9 +4385,13 @@ static void HandleAviSplitRequests()
 {
 	if(requestedAviSplitCount > aviSplitCount)
 	{
-		int prevAviMode = aviMode;
+		int oldAviMode = aviMode;
+		int oldAviSplitDiscardCount = aviSplitDiscardCount;
+		int oldRequestedAviSplitCount = requestedAviSplitCount;
 		CloseAVI();
-		aviMode = prevAviMode;
+		aviMode = oldAviMode;
+		aviSplitDiscardCount = oldAviSplitDiscardCount;
+		requestedAviSplitCount = oldRequestedAviSplitCount;
 		aviSplitCount = requestedAviSplitCount;
 		requestedAviSplitCount = 0;
 		tasFlagsDirty = true;
