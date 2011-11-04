@@ -1160,7 +1160,7 @@ static int LoadMovieFromFile(/*out*/ Movie& movie, const char* filename, bool fo
 		// and maybe add more specific warning messages, if warranted
 
 		bool assumeOK = false;
-#if SRCVERSION >= 71 && SRCVERSION <= 77 // a range of definitely sync-compatible versions
+#if SRCVERSION >= 71 && SRCVERSION <= 78 // a range of definitely sync-compatible versions
 		if(version >= 71 && version < SRCVERSION)
 			assumeOK = true;
 #endif
@@ -3330,11 +3330,13 @@ struct AviFrameQueue
 		for(int i = 0; i < numSlots; i++)
 			m_slots[i].slotNum = i;
 		threadDone = false;
-		thread = CreateThread(NULL, 0, AviFrameQueue<numSlots>::OutputVideoThreadFunc, (void*)this, 0, NULL);
+		thread = CreateThread(NULL, 0, AviFrameQueue<numSlots>::OutputVideoThreadFunc, (void*)this, CREATE_SUSPENDED, NULL);
 		SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
-		threadAudio = CreateThread(NULL, 0, AviFrameQueue<numSlots>::OutputAudioThreadFunc, (void*)this, 0, NULL);
-		SetThreadPriority(thread, THREAD_PRIORITY_ABOVE_NORMAL);
+		threadAudio = CreateThread(NULL, 0, AviFrameQueue<numSlots>::OutputAudioThreadFunc, (void*)this, CREATE_SUSPENDED, NULL);
+		SetThreadPriority(threadAudio, THREAD_PRIORITY_ABOVE_NORMAL);
 		m_disableFills = false;
+		ResumeThread(thread);
+		ResumeThread(threadAudio);
 	}
 	~AviFrameQueue()
 	{
@@ -3377,6 +3379,15 @@ struct AviFrameQueue
 			TerminateThread(threadAudio, -1);
 		}
 		CloseHandle(threadAudio);
+	}
+
+	void Flush()
+	{
+		for(int i = 0; i < numSlots; i++)
+		{
+			m_slots[i].hasProcessedVideo.WaitUntilFalse();
+			m_slots[i].hasProcessedAudio.WaitUntilFalse();
+		}
 	}
 
 	// send a new frame to AVI
@@ -3785,7 +3796,7 @@ struct AviFrameQueue
 					if((aviMode & 1) /*&& (framerate <= 0)*/)
 					{
 						aviSoundSecondsCount = nextAviSoundSecondsCount;
-						int prevAviSoundFrameCount = aviSoundFrameCount;
+						//int prevAviSoundFrameCount = aviSoundFrameCount;
 						aviSoundFrameCount = (int)(aviSoundSecondsCount * curAviFps);
 						//if(aviSoundFrameCount <= prevAviSoundFrameCount)
 						//	aviSoundFrameCount = prevAviSoundFrameCount + 1;
@@ -3893,16 +3904,16 @@ void CloseAVI()
 	if(aviStream)
 		oldIsBasicallyEmpty |= (aviFrameCount-aviEmptyFrameCount < 5 && aviSoundFrameCount < 15);
 
+	if(aviFrameQueue)
+		aviFrameQueue->Flush();
+	AutoCritSect cs1(&s_fqaCS);
+	AutoCritSect cs2(&s_fqvCS);
+	delete aviFrameQueue;
+	aviFrameQueue = NULL;
+
 	aviMode = 0;
 	aviSplitCount = 0;
 	aviSplitDiscardCount = 0;
-
-	{
-		AutoCritSect cs(&s_fqaCS);
-		AutoCritSect cs2(&s_fqvCS);
-		delete aviFrameQueue;
-		aviFrameQueue = NULL;
-	}
 
 	aviFrameCount = 0;
 	aviEmptyFrameCount = 0;
@@ -4317,9 +4328,16 @@ void WriteAVIAudio()
 		}
 	}
 
-	if(aviCompressedStream && (aviSoundFrameCount < 30 || aviSoundFrameCount+8 < aviFrameCount))
-		while(aviSoundFrameCount < aviFrameCount/*-aviEmptyFrameCount*/)
-			aviFrameQueue->FillEmptyAudioFrame(); // in case video started before audio
+	if(aviCompressedStream && (aviSoundFrameCount < 30 || aviSoundFrameCount+8 < aviFrameCount) && !aviSplitCount)
+	{
+		if(aviSoundFrameCount < aviFrameCount/*-aviEmptyFrameCount*/)
+		{
+			AutoCritSect cs(&s_fqaCS); // critical section and check again in case we got here while CloseAVI is running
+			if(aviCompressedStream && (aviSoundFrameCount < 30 || aviSoundFrameCount+8 < aviFrameCount) && !aviSplitCount)
+				while(aviSoundFrameCount < aviFrameCount/*-aviEmptyFrameCount*/)
+					aviFrameQueue->FillEmptyAudioFrame(); // in case video started before audio
+		}
+	}
 
 	aviFrameQueue->FillAudioFrame();
 
@@ -4405,6 +4423,7 @@ static void HandleAviSplitRequests()
 		int oldAviMode = aviMode;
 		int oldAviSplitDiscardCount = aviSplitDiscardCount;
 		int oldRequestedAviSplitCount = requestedAviSplitCount;
+		Sleep(200); // this isn't a fix for anything, the proper waits are in place. but it can't hurt...
 		CloseAVI();
 		aviMode = oldAviMode;
 		aviSplitDiscardCount = oldAviSplitDiscardCount;
