@@ -527,6 +527,30 @@ HOOKFUNC int WINAPI MyGetDeviceCaps(HDC hdc, int index)
 //	return 1;
 //}
 
+static int CALLBACK DoesFontExistWCallback(CONST LOGFONTW * lplf, CONST TEXTMETRICW * tm, DWORD type, LPARAM param)
+{
+	debugprintf(__FUNCTION__": %S,%d,%d\n", lplf->lfFaceName, lplf->lfCharSet, type);
+	*((DWORD*)param) = 1;
+	return 0;
+}
+bool DoesFontExistW(CONST LOGFONTW *lplf)
+{
+	if(!*lplf->lfFaceName)
+		return false;
+	HDC hdc = GetDC(NULL); // "If this value is NULL, GetDC retrieves the DC for the entire screen."
+	DWORD rv = 0;
+	EnumFontFamiliesExW(hdc, (LPLOGFONTW)lplf, &DoesFontExistWCallback, (LPARAM)&rv, 0);
+	ReleaseDC(NULL, hdc);
+	return rv != 0;
+}
+
+#define DEFAULT_FONT_FOR_LOCALE_1041 "MS Gothic" // English name of the default system font on Windows XP Japanese systems. Maybe there should be an option to use Meiryo instead (the default on Vista).
+// TODO: add defaults for other locales. without this, it should still find a readable font, but it might not look like what people are used to.
+
+// workaround for L"string" not working with macros
+#define _L2(x) L##x
+#define _L(x) _L2(x)
+
 
 HOOKFUNC HFONT WINAPI MyCreateFontIndirectA(CONST LOGFONTA *lplf)
 {
@@ -537,7 +561,9 @@ HOOKFUNC HFONT WINAPI MyCreateFontIndirectA(CONST LOGFONTA *lplf)
 
 	HFONT rv;
 	if(tasflags.appLocale
-	&& lplf->lfCharSet == LocaleToCharset(tasflags.appLocale)
+	&& (lplf->lfCharSet == LocaleToCharset(tasflags.appLocale)
+	 || (tasflags.movieVersion >= 79
+	  && (lplf->lfCharSet == DEFAULT_CHARSET || lplf->lfCharSet == OEM_CHARSET)))
 		/*&& lplf->lfCharSet != LocaleToCharset(GetACP())*/)
 	{
 		// since windows 2000, the CreateFont functions can recognize either the localized or unlocalized font name.
@@ -547,6 +573,12 @@ HOOKFUNC HFONT WINAPI MyCreateFontIndirectA(CONST LOGFONTA *lplf)
 		LOGFONTW fontw;
 		memcpy(&fontw, lplf, (int)&fontw.lfFaceName - (int)&fontw);
 		wcscpy(fontw.lfFaceName, wstr);
+		if(tasflags.movieVersion >= 79 && tasflags.appLocale == 1041 && !DoesFontExistW(&fontw))
+		{
+			wcscpy(fontw.lfFaceName, _L(DEFAULT_FONT_FOR_LOCALE_1041));
+			if(!DoesFontExistW(&fontw))
+				wcscpy(fontw.lfFaceName, wstr);
+		}
 		rv = CreateFontIndirectW(&fontw);
 	}
 	else
@@ -561,6 +593,21 @@ HOOKFUNC HFONT WINAPI MyCreateFontIndirectW(CONST LOGFONTW *lplf)
 	debuglog(LCF_GDI, __FUNCTION__ " called (quality=%d, charset=%d, lfFaceName=%S).\n", lplf->lfQuality, lplf->lfCharSet, lplf->lfFaceName);
 	if(lplf->lfQuality != NONANTIALIASED_QUALITY)
 		((LOGFONTW*)lplf)->lfQuality = ANTIALIASED_QUALITY; // disable ClearType so it doesn't get into AVIs
+
+	LOGFONTW fontw;
+	if(tasflags.movieVersion >= 79 && tasflags.appLocale
+	&& (lplf->lfCharSet == LocaleToCharset(tasflags.appLocale)
+	 || lplf->lfCharSet == DEFAULT_CHARSET || lplf->lfCharSet == OEM_CHARSET))
+	{
+		if(tasflags.appLocale == 1041 && !DoesFontExistW(lplf))
+		{
+			memcpy(&fontw, lplf, sizeof(LOGFONTW));
+			wcscpy(fontw.lfFaceName, _L(DEFAULT_FONT_FOR_LOCALE_1041));
+			if(DoesFontExistW(&fontw))
+				lplf = &fontw;
+		}
+	}
+
 	HFONT rv = CreateFontIndirectW(lplf);
 	return rv;
 }
