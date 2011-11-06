@@ -290,8 +290,8 @@ BEGIN
     PUSHBUTTON      "...",IDC_BUTTON_MOVIEBROWSE,160,42,20,15
     DEFPUSHBUTTON   "Apply",IDOK,100,70,50,15
     PUSHBUTTON      "Close",ID_CANCEL,40,70,50,15
-    LTEXT           "Source Start Frame",IDC_STATIC_TEXT0,10,2,120,8
-    LTEXT           "Source Movie File",IDC_STATIC_TEXT0,10,32,120,8
+    LTEXT           "Source Start Frame",IDC_STATIC,10,2,120,8
+    LTEXT           "Source Movie File",IDC_STATIC,10,32,120,8
 END
 
 
