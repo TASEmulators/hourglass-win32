@@ -335,6 +335,7 @@
 #define ID_EXEC_WAITSYNC_ASYNC          40397
 #define ID_EXEC_DLLS_INSTALLED          40400
 #define ID_EXEC_DLLS_UXTHEME            40401
+#define ID_EXEC_DLLS_RUNLAST            40402
 #define ID_EXEC_LOCALE_SYSTEM           40410
 #define ID_EXEC_LOCALE_ENGLISH          40411
 #define ID_EXEC_LOCALE_JAPANESE         40412

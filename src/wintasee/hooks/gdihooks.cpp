@@ -529,7 +529,7 @@ HOOKFUNC int WINAPI MyGetDeviceCaps(HDC hdc, int index)
 
 static int CALLBACK DoesFontExistWCallback(CONST LOGFONTW * lplf, CONST TEXTMETRICW * tm, DWORD type, LPARAM param)
 {
-	debugprintf(__FUNCTION__": %S,%d,%d\n", lplf->lfFaceName, lplf->lfCharSet, type);
+	//debugprintf(__FUNCTION__": %S,%d,%d\n", lplf->lfFaceName, lplf->lfCharSet, type);
 	*((DWORD*)param) = 1;
 	return 0;
 }

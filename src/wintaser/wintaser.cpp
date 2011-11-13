@@ -710,7 +710,7 @@ int forceSurfaceMemory = 0;
 /*static*/ int threadMode = 1;
 /*static*/ int timersMode = 1;
 /*static*/ int messageSyncMode = 1;
-int allowLoadInstalledDlls = 0, allowLoadUxtheme = 0;
+int allowLoadInstalledDlls = 0, allowLoadUxtheme = 0, runDllLast = 0;
 int waitSyncMode = 1;
 int aviMode = 0;
 static int threadStuckCount = 0;
@@ -728,6 +728,7 @@ int truePause = 0;
 int onlyHookChildProcesses = 0;
 int advancePastNonVideoFrames = 0;
 bool advancePastNonVideoFramesConfigured = false;
+bool runDllLastConfigured = false;
 bool crcVerifyEnabled = true;
 int audioFrequency = 44100;
 int audioBitsPerSecond = 16;
@@ -1163,6 +1164,9 @@ static int LoadMovieFromFile(/*out*/ Movie& movie, const char* filename, bool fo
 #if SRCVERSION >= 71 && SRCVERSION <= 78 // a range of definitely sync-compatible versions
 		if(version >= 71 && version < SRCVERSION)
 			assumeOK = true;
+#endif
+#if _DEBUG
+		assumeOK=true;
 #endif
 
 
@@ -6778,7 +6782,7 @@ DWORD GetProgramCounter(HANDLE hThread)
 
 
 
-static std::vector<PROCESS_INFORMATION> oldProcessInfos;
+static std::vector<PROCESS_INFORMATION> allProcessInfos; // was oldProcessInfos
 
 
 static HANDLE debuggerThread = NULL;
@@ -6845,17 +6849,17 @@ static void DebuggerThreadFuncCleanup(HANDLE threadHandleToClose, HANDLE hProces
 		dllBaseToFilename.clear();
 	}
 
-	CloseThreadHandles(threadHandleToClose, hProcess);
+	//CloseThreadHandles(threadHandleToClose, hProcess);
 
 	EXTENDEDTRACEUNINITIALIZE(hProcess);
-	for(unsigned int i = 0; i < oldProcessInfos.size(); i++)
-	{
-		HANDLE hOldProcess = oldProcessInfos[i].hProcess;
-		EXTENDEDTRACEUNINITIALIZE(hOldProcess);
-		debugprintf("Closing process handle 0x%X\n", hOldProcess);
-		CloseHandle(hOldProcess);
-	}
-	oldProcessInfos.clear();
+	//for(unsigned int i = 0; i < allProcessInfos.size(); i++)
+	//{
+	//	HANDLE hOldProcess = allProcessInfos[i].hProcess;
+	//	EXTENDEDTRACEUNINITIALIZE(hOldProcess);
+	//	debugprintf("Closing process handle 0x%X\n", hOldProcess);
+	//	CloseHandle(hOldProcess);
+	//}
+	allProcessInfos.clear();
 	customBreakpoints.clear();
 
 	terminateRequest = false;
@@ -6882,9 +6886,9 @@ static HANDLE GetProcessHandle(PROCESS_INFORMATION& processInfo, const DEBUG_EVE
 {
 	HANDLE hProcess = processInfo.hProcess;
 	if(processInfo.dwProcessId != de.dwProcessId)
-		for(unsigned int i = 0; i < oldProcessInfos.size(); i++)
-			if(oldProcessInfos[i].dwProcessId == de.dwProcessId)
-				hProcess = oldProcessInfos[i].hProcess;
+		for(unsigned int i = 0; i < allProcessInfos.size(); i++)
+			if(allProcessInfos[i].dwProcessId == de.dwProcessId)
+				hProcess = allProcessInfos[i].hProcess;
 	return hProcess;
 }
 
@@ -6910,83 +6914,83 @@ static void HandleThreadExitEvent(DEBUG_EVENT& de, PROCESS_INFORMATION& processI
 		processInfo.hThread = INVALID_HANDLE_VALUE;
 }
 
-static void SafeTerminateProcess(PROCESS_INFORMATION& processInfo)
-{
-	// print the status and callstack of all threads
-	debugprintf("final stack trace:\n");
-	std::map<DWORD,ThreadInfo>::iterator iter;
-	for(iter = hGameThreads.begin(); iter != hGameThreads.end(); iter++)
-	{
-		DWORD threadId = iter->first;
-		ThreadInfo threadInfo = iter->second;
-		HANDLE hThread = threadInfo.handle;
-		char msg [16+72];
-		sprintf(msg, "(id=0x%X) (name=%s)", threadId, threadInfo.name);
-		THREADSTACKTRACEMSG(hThread, msg, /*threadInfo.hProcess*/hGameProcess);
-	}
-
-	// let's warn the game before forcefully shutting it down,
-	// mostly for the purpose of preventing sound stuttering.
-
-	// have to loop at least twice to eat the FRAME command the game might send first.
-	// should loop a few more times for safety (to give the game some extra time to cleanup).
-	// but can't be too many times because keep in mind we're on a 5000 millisecond timer to exit this thread.
-	DEBUG_EVENT de;
-	for (int i = 0; i < 2+8; i++)
-	{
-		sprintf(localCommandSlot, "PREPARETODIE: %d", i);
-		requestedCommandReenter = false;
-		SendCommand();
-		if(WaitForDebugEvent(&de, 50))
-		{
-			switch(de.dwDebugEventCode)
-			{
-			case EXIT_THREAD_DEBUG_EVENT:
-				HandleThreadExitEvent(de, processInfo);
-				break;
-			case EXIT_PROCESS_DEBUG_EVENT:
-				goto doneterminate;
-			}
-			ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_CONTINUE);
-		}
-	}
-doneterminate:
-	DWORD exitcode;
-	enum {FORCED_EXITCODE = -4242 };
-	for(int i = 0; i < 10; i++) // we're still on a timer but another half second should be ok
-	{
-		if(GetExitCodeProcess(hGameProcess, &exitcode) && exitcode != STILL_ACTIVE)
-			break;
-
-		TerminateProcess(hGameProcess, FORCED_EXITCODE);
-
-		if(GetExitCodeProcess(hGameProcess, &exitcode) && exitcode != STILL_ACTIVE)
-			break;
-
-		Sleep(50);
-	}
-	if(GetExitCodeProcess(hGameProcess, &exitcode))
-	{
-		switch(exitcode)
-		{
-		case (DWORD)SUCCESSFUL_EXITCODE: debugprintf("game process exited (terminated successfully)\n"); break;
-		case (DWORD)FORCED_EXITCODE:     debugprintf("game process exited (terminated forcefully)\n"); break;
-		case STILL_ACTIVE:               debugprintf("game process exited? (terminated implicitly)\n"); break;
-		default: {
-			const char* desc = ExceptionCodeToDescription(exitcode, NULL);
-			if(desc)
-				debugprintf("game process exited (killed by: %s)\n", desc);
-			else
-				debugprintf("game process exited (with unknown exit code %d)\n", (int)exitcode);
-			} break;
-		}
-	}
-	else
-		debugprintf("game process exited? (no exit code)\n");
-	debugprintf("Closing process handle 0x%X\n", hGameProcess);
-	CloseHandle(hGameProcess);
-	hGameProcess = 0;
-}
+//static void SafeTerminateProcess(PROCESS_INFORMATION& processInfo)
+//{
+//	// print the status and callstack of all threads
+//	debugprintf("final stack trace:\n");
+//	std::map<DWORD,ThreadInfo>::iterator iter;
+//	for(iter = hGameThreads.begin(); iter != hGameThreads.end(); iter++)
+//	{
+//		DWORD threadId = iter->first;
+//		ThreadInfo threadInfo = iter->second;
+//		HANDLE hThread = threadInfo.handle;
+//		char msg [16+72];
+//		sprintf(msg, "(id=0x%X) (name=%s)", threadId, threadInfo.name);
+//		THREADSTACKTRACEMSG(hThread, msg, /*threadInfo.hProcess*/hGameProcess);
+//	}
+//
+//	// let's warn the game before forcefully shutting it down,
+//	// mostly for the purpose of preventing sound stuttering.
+//
+//	// have to loop at least twice to eat the FRAME command the game might send first.
+//	// should loop a few more times for safety (to give the game some extra time to cleanup).
+//	// but can't be too many times because keep in mind we're on a 5000 millisecond timer to exit this thread.
+//	DEBUG_EVENT de;
+//	for (int i = 0; i < 2+8; i++)
+//	{
+//		sprintf(localCommandSlot, "PREPARETODIE: %d", i);
+//		requestedCommandReenter = false;
+//		SendCommand();
+//		if(WaitForDebugEvent(&de, 50))
+//		{
+//			switch(de.dwDebugEventCode)
+//			{
+//			case EXIT_THREAD_DEBUG_EVENT:
+//				HandleThreadExitEvent(de, processInfo);
+//				break;
+//			case EXIT_PROCESS_DEBUG_EVENT:
+//				goto doneterminate;
+//			}
+//			ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_CONTINUE);
+//		}
+//	}
+//doneterminate:
+//	DWORD exitcode;
+//	enum {FORCED_EXITCODE = -4242 };
+//	for(int i = 0; i < 10; i++) // we're still on a timer but another half second should be ok
+//	{
+//		if(GetExitCodeProcess(hGameProcess, &exitcode) && exitcode != STILL_ACTIVE)
+//			break;
+//
+//		TerminateProcess(hGameProcess, FORCED_EXITCODE);
+//
+//		if(GetExitCodeProcess(hGameProcess, &exitcode) && exitcode != STILL_ACTIVE)
+//			break;
+//
+//		Sleep(50);
+//	}
+//	if(GetExitCodeProcess(hGameProcess, &exitcode))
+//	{
+//		switch(exitcode)
+//		{
+//		case (DWORD)SUCCESSFUL_EXITCODE: debugprintf("game process exited (terminated successfully)\n"); break;
+//		case (DWORD)FORCED_EXITCODE:     debugprintf("game process exited (terminated forcefully)\n"); break;
+//		case STILL_ACTIVE:               debugprintf("game process exited? (terminated implicitly)\n"); break;
+//		default: {
+//			const char* desc = ExceptionCodeToDescription(exitcode, NULL);
+//			if(desc)
+//				debugprintf("game process exited (killed by: %s)\n", desc);
+//			else
+//				debugprintf("game process exited (with unknown exit code %d)\n", (int)exitcode);
+//			} break;
+//		}
+//	}
+//	else
+//		debugprintf("game process exited? (no exit code)\n");
+//	debugprintf("Closing process handle 0x%X\n", hGameProcess);
+//	CloseHandle(hGameProcess);
+//	hGameProcess = 0;
+//}
 
 void OnMovieStart()
 {
@@ -7019,13 +7023,12 @@ void OnMovieStart()
 static DWORD WINAPI DebuggerThreadFunc(LPVOID lpParam) 
 {
 	ClearCrcCache();
-	bool runDllLast = false; // must be before restartgame label
 
-restartgame:
+//restartgame:
 
 	STARTUPINFO startupInfo = { sizeof(STARTUPINFO) };
 	PROCESS_INFORMATION processInfo = {0};
-	oldProcessInfos.clear();
+	allProcessInfos.clear();
 	customBreakpoints.clear();
 
 	s_lastFrameCount = 0;
@@ -7120,7 +7123,7 @@ restartgame:
 
 	if(!onlyHookChildProcesses)
 	{
-		InjectDll(processInfo.hProcess, processInfo.dwProcessId, processInfo.hThread, processInfo.dwThreadId, dllpath, runDllLast);
+		InjectDll(processInfo.hProcess, processInfo.dwProcessId, processInfo.hThread, processInfo.dwThreadId, dllpath, runDllLast!=0);
 
 		debugprintf("done injection. starting game thread\n");
 	}
@@ -7147,7 +7150,8 @@ restartgame:
 	CheckDialogChanges(0);
 	EnableWindow(GetDlgItem(hWnd, IDC_BUTTON_STOP), true);
 	mainMenuNeedsRebuilding = true;
-	ResumeThread(processInfo.hThread);
+	HANDLE hInitialThread = processInfo.hThread;
+	ResumeThread(hInitialThread);
 
 	//BOOL firstBreak = TRUE;
 	bool postDllMainDone = false;
@@ -7160,14 +7164,26 @@ restartgame:
 	debugprintf("entering debugger loop\n");
 	DEBUG_EVENT de;
 
-	while(!terminateRequest)
+	bool terminated = false;
+	bool terminateAttempted = false;
+	while(!terminated)
 	{
+		if(terminateRequest && !terminateAttempted)
+		{
+			for(unsigned int i = 0; i < allProcessInfos.size(); i++)
+				TerminateProcess(allProcessInfos[i].hProcess, 0);
+			if(allProcessInfos.empty())
+				TerminateProcess(hGameProcess, 0);
+			terminateAttempted = true;
+		}
+
 		//if((GetAsyncKeyState('R') & 0x8000))
 		//{
 		//	TerminateProcess(processInfo.hProcess, 0);
 		//	goto done;
 		//}
 
+//		if (WaitForDebugEvent(&de, INFINITE))
 		if (WaitForDebugEvent(&de, /*redalert?1:*/30))
 		{
 			runningNow = false;
@@ -7194,12 +7210,13 @@ restartgame:
 
 			LeaveCriticalSection(&g_processMemCS);
 			if(de.dwDebugEventCode != 8)
-				verbosedebugprintf("received debug event: 0x%X\n", de.dwDebugEventCode);
+				verbosedebugprintf("WaitForDebugEvent. received debug event: %X\n", de.dwDebugEventCode);
 
 			switch(de.dwDebugEventCode)
 			{
 			case OUTPUT_DEBUG_STRING_EVENT:
 				{
+#pragma region OUTPUT_DEBUG_STRING_EVENT
 					HANDLE hProcess = hGameProcess;//GetProcessHandle(processInfo,de); 
 					char str[4096];
 					OUTPUT_DEBUG_STRING_INFO dsi = de.u.DebugString;
@@ -7400,6 +7417,8 @@ restartgame:
 							CheckSrcDllVersion(atoi(pstr));
 						else if(MessagePrefixMatch("DLLVERSION"))
 							ProcessDllVersion(pstr);
+						else if(MessagePrefixMatch("KILLME"))
+							terminateRequest = true;
 						else if(MessagePrefixMatch("DEBUGPAUSE"))
 						{
 							debugprintf("DEBUGPAUSE: %s",pstr);
@@ -7449,11 +7468,13 @@ restartgame:
 
 #undef MessagePrefixMatch
 					}
+#pragma endregion
 				}
 				break;
 
 			case EXCEPTION_DEBUG_EVENT:
 			{
+#pragma region EXCEPTION_DEBUG_EVENT
 				verbosedebugprintf("exception code: 0x%X\n", de.u.Exception.ExceptionRecord.ExceptionCode);
 
 				if(de.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT)
@@ -7674,44 +7695,44 @@ restartgame:
 					else // actual crash:
 					{
 						bool skipDialog = false;
-						if((!postDllMainDone || s_lastFrameCount < 4) && !runDllLast)
-						{
-							// this is so RotateGear can run
-							int result = IDYES;
-							if(movie.version >= 66)
-							{
-								result = CustomMessageBox("The game failed to start up.\n"
-									"\n"
-									"Sometimes this can be fixed by changing your settings or using a different OS,\n"
-									"but usually this means the game is not supported yet.\n"
-									"\n"
-									"In certain specific games (such as RotateGear),\n"
-									"this is expected to happen because of DLL loading order problems.\n"
-									"Do you want to try restarting the game with a different loading order?\n"
-									"(If this is not one of those specific games, this can cause desyncs.)", "CRASH",
-									MB_YESNO|MB_DEFBUTTON2|MB_ICONERROR);
-								skipDialog = true;
-							}
-							if(result == IDYES)
-							{
-								debugprintf("the game crashed, but...\n");
-								debugprintf("assuming crash is due to some bug in IATModifier::writeIAT. retrying with alternate method.\n");
-								runDllLast = true;
-
-								//CloseHandle(hGameProcess);
-								//hGameProcess = 0;
-								//TerminateProcess(hGameProcess, -1);
-
-								LeaveCriticalSection(&g_processMemCS);
-								//HANDLE hProcess = GetProcessHandle(processInfo,de); 
-								//DebuggerThreadFuncCleanup(processInfo.hThread, hProcess);
-
-								ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_EXCEPTION_NOT_HANDLED);
-								SafeTerminateProcess(processInfo);
-
-								goto restartgame;
-							}
-						}
+						////if((!postDllMainDone || s_lastFrameCount < 4) && !runDllLast)
+						//{
+						//	// this is so RotateGear can run
+						//	int result = IDYES;
+						//	if(movie.version >= 66)
+						//	{
+						//		result = CustomMessageBox("The game failed to start up.\n"
+						//			"\n"
+						//			"Sometimes this can be fixed by changing your settings or using a different OS,\n"
+						//			"but usually this means the game is not supported yet.\n"
+						//			"\n"
+						//			"In certain specific games (such as RotateGear),\n"
+						//			"this is expected to happen because of DLL loading order problems.\n"
+						//			"Do you want to try restarting the game with a different loading order?\n"
+						//			"(If this is not one of those specific games, this can cause desyncs.)", "CRASH",
+						//			MB_YESNO|MB_DEFBUTTON2|MB_ICONERROR);
+						//		skipDialog = true;
+						//	}
+						//	if(result == IDYES)
+						//	{
+						//		debugprintf("the game crashed, but...\n");
+						//		debugprintf("assuming crash is due to some bug in IATModifier::writeIAT. retrying with alternate method.\n");
+						//		runDllLast = true;
+						//
+						//		//CloseHandle(hGameProcess);
+						//		//hGameProcess = 0;
+						//		//TerminateProcess(hGameProcess, -1);
+						//
+						//		LeaveCriticalSection(&g_processMemCS);
+						//		//HANDLE hProcess = GetProcessHandle(processInfo,de); 
+						//		//DebuggerThreadFuncCleanup(processInfo.hThread, hProcess);
+						//
+						//		ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_EXCEPTION_NOT_HANDLED);
+						//		SafeTerminateProcess(processInfo);
+						//
+						//		goto restartgame;
+						//	}
+						//}
 
 
 						//if(hasMainThread)
@@ -7748,7 +7769,7 @@ restartgame:
 						//					}
 						//				}
 						//			}
-
+						//
 						//			EnterCriticalSection(&g_processMemCS);
 						//			runningNow = true;
 						//			ContinueDebugEvent(de.dwProcessId, de.dwThreadId, continuing ? DBG_CONTINUE : DBG_EXCEPTION_NOT_HANDLED);
@@ -7792,11 +7813,14 @@ restartgame:
 					}
 					continue;
 				}
-			}	break;
+#pragma endregion
+			}
+			break;
 
 			// actually something a normal debugger might do:
 			case LOAD_DLL_DEBUG_EVENT:
 				{
+#pragma region LOAD_DLL_DEBUG_EVENT
 //					bool neverLoaded = dllBaseToHandle.find(de.u.LoadDll.lpBaseOfDll) == dllBaseToHandle.end();
 					//bool neverLoaded = dllBaseToFilename.find(de.u.LoadDll.lpBaseOfDll) == dllBaseToFilename.end();
 //					if(!dllBaseToHandle[de.u.LoadDll.lpBaseOfDll])
@@ -7834,10 +7858,12 @@ restartgame:
 						// which causes subtle bugs like EXCEPTION_INVALID_HANDLE exceptions with threads much later
 						CloseHandle(de.u.LoadDll.hFile);
 					}
+#pragma endregion
 				}
 				break;
 			case UNLOAD_DLL_DEBUG_EVENT:
 				{
+#pragma region UNLOAD_DLL_DEBUG_EVENT
 					//char filename [MAX_PATH+1];
 					//HANDLE hFile = dllBaseToHandle[de.u.UnloadDll.lpBaseOfDll];
 					//GetFileNameFromFileHandle(hFile, filename);
@@ -7850,6 +7876,7 @@ restartgame:
 					dllBaseToFilename[de.u.UnloadDll.lpBaseOfDll] = "";
 					//debugprintf("CLOSE HANDLE( THREAD:?): fhandle=0x%X\n", hFile);
 					//CloseHandle(hFile);
+#pragma endregion
 				}
 				break;
 
@@ -7858,6 +7885,7 @@ restartgame:
 			// when it comes time to save or load them
 			case CREATE_THREAD_DEBUG_EVENT:
 				{
+#pragma region CREATE_THREAD_DEBUG_EVENT
 					debugprintf("STARTED THREAD: id=0x%X, handle=0x%X\n", de.dwThreadId, de.u.CreateThread.hThread);
 
 			// print the status and callstack of all threads
@@ -7895,14 +7923,20 @@ restartgame:
 						strcpy(hGameThreads[de.dwThreadId].name, danglingThreadName);
 					danglingThreadNameId = -1;
 					ASSERT(hGameThreads[de.dwThreadId].handle);
+#pragma endregion
 				}
 				break;
 			case EXIT_THREAD_DEBUG_EVENT:
-				HandleThreadExitEvent(de, processInfo);
+				{
+#pragma region EXIT_THREAD_DEBUG_EVENT
+					HandleThreadExitEvent(de, processInfo);
+#pragma endregion
+				}
 				break;
 
 			case CREATE_PROCESS_DEBUG_EVENT:
 				{
+#pragma region CREATE_PROCESS_DEBUG_EVENT
 					char filename [MAX_PATH+1];
 
 					// hFile is NULL sometimes...
@@ -7943,7 +7977,7 @@ restartgame:
 						// this still lets us see the exe name
 						// next to the addresses of functions it calls.
 						LOADSYMBOLS2(hGameProcess, filename, de.u.CreateProcessInfo.hFile, de.u.CreateProcessInfo.lpBaseOfImage);
-						CloseHandle(de.u.CreateProcessInfo.hProcess);
+						//CloseHandle(de.u.CreateProcessInfo.hProcess);
 					}
 					else
 					{
@@ -7951,47 +7985,71 @@ restartgame:
 						//// hook the game process' child process too
 						//InjectDll(de.u.CreateProcessInfo.hProcess, dllpath);
 
-						oldProcessInfos.push_back(processInfo);
-
 						processInfo.hProcess = de.u.CreateProcessInfo.hProcess;
 						processInfo.dwProcessId = de.dwProcessId;
 						processInfo.dwThreadId = de.dwThreadId;
 						processInfo.hThread = de.u.CreateProcessInfo.hThread;
+
 						//EXTENDEDTRACEUNINITIALIZE(hProcess);
-						CloseHandle(hGameProcess);
+//						CloseHandle(hGameProcess);
 						hGameProcess = processInfo.hProcess;
 						debugprintf("switched to child process, handle 0x%X, PID = %d.\n", hGameProcess, processInfo.dwProcessId);
 						PrintPrivileges(hGameProcess);
 						EXTENDEDTRACEINITIALIZEEX( NULL, hGameProcess );
 						LOADSYMBOLS2(hGameProcess, filename, de.u.CreateProcessInfo.hFile, de.u.CreateProcessInfo.lpBaseOfImage);
 						debugprintf("attempting injection...\n");
-						InjectDll(processInfo.hProcess, processInfo.dwProcessId, processInfo.hThread, processInfo.dwThreadId, dllpath, runDllLast);
+						InjectDll(processInfo.hProcess, processInfo.dwProcessId, processInfo.hThread, processInfo.dwThreadId, dllpath, runDllLast!=0);
 						debugprintf("done injection. continuing...\n");
 					}
 
+					allProcessInfos.push_back(processInfo);
+
 					if(nullFile && de.u.CreateProcessInfo.hFile)
-					{
+					{	// TODO: WHY?
 						if(de.u.CreateProcessInfo.hFile != INVALID_HANDLE_VALUE)
 							CloseHandle(de.u.CreateProcessInfo.hFile);
 						de.u.CreateProcessInfo.hFile = NULL;
 					}
-
+#pragma endregion
 				}
 				CloseHandle(de.u.CreateProcessInfo.hFile);
 				break;		
 			case EXIT_PROCESS_DEBUG_EVENT:
+				//debugprintf("got EXIT_PROCESS_DEBUG_EVENT \n");
+				{
+#pragma region EXIT_PROCESS_DEBUG_EVENT
+					// TODO: handle closing child processes without closing the main one
+					// for now we assume we're all done whenever any process or subprocess exits.
 
-				// TODO: handle closing child processes without closing the main one
-				// for now we assume we're all done whenever any process or subprocess exits.
+					if(unsaved)
+						SaveMovieToFile(movie, moviefilename);
 
-				if(unsaved)
-					SaveMovieToFile(movie, moviefilename);
+					//UnregisterModuleInfo(de.u.ExitProcess.lpBaseOfImage, hProcess, filename);
 
-				//UnregisterModuleInfo(de.u.ExitProcess.lpBaseOfImage, hProcess, filename);
+					//ContinueDebugEvent(de.dwProcessId, 0, DBG_CONTINUE); //DBG_TERMINATE_PROCESS
+					//goto done;
 
-				goto done;
+					// keep track of which processes have exited, and set 'terminated' to true if all of them have.
+					// we do this because, as a new "feature" of Vista and Windows 7,
+					// the application will remain frozen if we don't call ContinueDebugProcess after its EXIT_PROCESS_DEBUG_EVENT,
+					// so we can't exit the debugger loop until that has been done for each process that got created.
+					for(unsigned int i = 0; i < allProcessInfos.size(); i++)
+					{
+						if(allProcessInfos[i].dwProcessId == de.dwProcessId)
+						{
+							allProcessInfos.erase(allProcessInfos.begin() + i);
+							break;
+						}
+					}
+					if(allProcessInfos.empty())
+						terminated = true;
+#pragma endregion
+				}
 				break;
-			}	
+			case RIP_EVENT: // I've never encountered a rip event, but I might as well log it in case it happens.
+				debugprintf("RIP: err=0x%X, type=0x%X\n", de.u.RipInfo.dwError, de.u.RipInfo.dwType);
+				break;
+			}
 
 			//// sometimes we fail to get a CREATE_THREAD_DEBUG_EVENT
 			//// about a thread that keeps running and sending us messages.
@@ -8026,6 +8084,7 @@ restartgame:
 
 			EnterCriticalSection(&g_processMemCS);
 			runningNow = true;
+			//debugprintf("ContinueDebugEvent(0x%X, 0x%X, 0x%X)\n", de.dwProcessId, de.dwThreadId, DBG_CONTINUE);
 			ContinueDebugEvent(de.dwProcessId, de.dwThreadId, DBG_CONTINUE);
 		}
 		else
@@ -8055,6 +8114,7 @@ restartgame:
 //#endif
 			//Update_Input(hWnd, false, true);
 
+			//debugprintf("WaitForDebugEvent. timed out. waiting...\n");
 
 			CheckHotkeys(-1, false);
 			Sleep(5);
@@ -8062,24 +8122,28 @@ restartgame:
 	}
 
 done:
+	//debugprintf("DONE\n");
 	runningNow = false; 
 	LeaveCriticalSection(&g_processMemCS);
-	if(hGameProcess)
-	{
-		SafeTerminateProcess(processInfo);
-		//debugprintf("Closing process handle 0x%X\n", hGameProcess);
-		//CloseHandle(hGameProcess);
-	}
+//	if(hGameProcess)
+//	{
+//		SafeTerminateProcess(processInfo);
+//		//debugprintf("Closing process handle 0x%X\n", hGameProcess);
+//		//CloseHandle(hGameProcess);
+//	}
+	hGameProcess = 0;
 earlyAbort:
-	DebuggerThreadFuncCleanup(processInfo.hThread, processInfo.hProcess);
+	DebuggerThreadFuncCleanup(hInitialThread, processInfo.hProcess);
+//	CloseHandle(processInfo.hProcess);
 
 	// certain cleanup tasks need to happen after this thread has exited,
 	// because either they might take too long, or they enable things in the UI
 	// that aren't safe to click on until after this thread is really completely gone
 	afterDebugThreadExit = true;
 
-	TerminateThread(GetCurrentThread(), 0); // hack for Vista (on Vista this thread just freezes if we try to return instead)
-	return 0; // this works fine on Windows XP but not on Vista?
+//	TerminateThread(GetCurrentThread(), 0); // hack for Vista (on Vista this thread just freezes if we try to return instead)
+//	return 0; // this works fine on Windows XP but not on Vista?
+	return 0;
 }
 
 
@@ -8101,7 +8165,7 @@ static DWORD WINAPI AfterDebugThreadExitThread(LPVOID lpParam)
 	ClearAndDeallocateContainer(gameThreadIdList);
 	ClearAndDeallocateContainer(trustedModuleInfos);
 	ClearAndDeallocateContainer(injectedDllModuleInfo.path);
-	ClearAndDeallocateContainer(oldProcessInfos);
+	ClearAndDeallocateContainer(allProcessInfos);
 
 	DeallocateRamSearch();
 
@@ -9309,6 +9373,12 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 					tasFlagsDirty = true;
 					break;
 
+				case ID_EXEC_DLLS_RUNLAST:
+					runDllLast = !runDllLast;
+					runDllLastConfigured = true;
+					mainMenuNeedsRebuilding = true;
+					break;
+
 
 				case ID_EXEC_LOCALE_SYSTEM: appLocale = 0; tasFlagsDirty = true; break;
 				case ID_EXEC_LOCALE_JAPANESE: appLocale = 1041; tasFlagsDirty = true; break;
@@ -9923,6 +9993,7 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 								// until perhaps there's a proper ini file for such defaults
 								int newFramerate;
 								BOOL newLagskip;
+								int newRunDllLast = 0;
 								const char* fname = GetExeFilenameWithoutPath();
 								if(!stricmp(fname, "Doukutsu.exe")
 								|| !stricmp(fname, "dxIka.exe")
@@ -9964,6 +10035,10 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 										tasFlagsDirty = true;
 									}
 								}
+								else if(!stricmp(fname, "RotateGear.exe"))
+								{
+									newFramerate = 60; newLagskip = false; newRunDllLast = true;
+								}
 								else // default to 60 for everything else
 								{
 									newFramerate = 60; newLagskip = false;
@@ -9979,6 +10054,11 @@ BOOL CALLBACK DlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 								{
 									advancePastNonVideoFrames = newLagskip;
 									advancePastNonVideoFramesConfigured = false;
+									mainMenuNeedsRebuilding = true;
+								}
+								if(runDllLast != newRunDllLast && !runDllLastConfigured)
+								{
+									runDllLast = newRunDllLast;
 									mainMenuNeedsRebuilding = true;
 								}
 							}

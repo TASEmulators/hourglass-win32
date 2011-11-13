@@ -1879,7 +1879,7 @@ extern int aviMode;
 extern int emuMode;
 extern int fastForwardFlags;
 extern int timescale, timescaleDivisor;
-extern int allowLoadInstalledDlls, allowLoadUxtheme;
+extern int allowLoadInstalledDlls, allowLoadUxtheme, runDllLast;
 extern int advancePastNonVideoFrames;
 extern bool advancePastNonVideoFramesConfigured;
 extern int threadMode;
@@ -2435,8 +2435,10 @@ void Build_Main_Menu(HMENU& MainMenu, HWND hWnd)
 
 	// Dll Loading Submenu	
 	i = 0;
-	MENU_L(ExecDlls, i++, Flags | ((allowLoadInstalledDlls)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_INSTALLED, "", "Allow loading any custom/installed DLLs", 0);
-	MENU_L(ExecDlls, i++, Flags | ((allowLoadUxtheme)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_UXTHEME, "", "Allow loading uxtheme.dll (for non-classic window styles)", 0);
+	MENU_L(ExecDlls, i++, Flags | ((allowLoadInstalledDlls)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_INSTALLED, "", "Allow loading any custom/installed DLLs (e.g. Fraps) (can affect sync)", 0);
+	MENU_L(ExecDlls, i++, Flags | ((allowLoadUxtheme)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_UXTHEME, "", "Allow loading uxtheme.dll (for non-classic window styles on XP)", 0);
+	InsertMenu(ExecDlls, i++, MF_SEPARATOR, NULL, NULL);
+	MENU_L(ExecDlls, i++, Flags | ((runDllLast)?MF_CHECKED:MF_UNCHECKED), ID_EXEC_DLLS_RUNLAST, "", "Allow other DLLs to run first (this is a hack currently required for RotateGear)", 0);
 
 	// Locale Submenu	
 	i = 0;
