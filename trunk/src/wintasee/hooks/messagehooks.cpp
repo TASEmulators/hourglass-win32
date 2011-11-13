@@ -462,8 +462,9 @@ static MessageActionFlags GetMessageActionFlags(UINT message, WPARAM wParam, LPA
 	case WM_SETCURSOR:
 	case WM_NOTIFY:
 	case WM_SHOWWINDOW:
-	case WM_SYSCOMMAND:
 		break;//return MAF_INTERCEPT | MAF_RETURN_0; // maybe ok to ditch?
+	case WM_SYSCOMMAND:
+		return MAF_BYPASSGAME | MAF_RETURN_CUSTOM;
 	case WM_COMMAND:
 		if(VerifyIsTrustedCaller(!tls.callerisuntrusted))
 			return MAF_PASSTHROUGH | MAF_RETURN_OS; // hack to fix F2 command in Eternal Daughter
@@ -575,6 +576,18 @@ LRESULT CustomHandleWndProcMessage(HWND hWnd, UINT message, WPARAM wParam, LPARA
 				else
 					r->bottom = r->top + snapHeight;
 			return 1;
+		}
+		break;
+
+	case WM_SYSCOMMAND:
+		if((wParam & SC_CLOSE) == SC_CLOSE)
+		{
+			if(hWnd == gamehwnd)
+			{
+				// user clicked on the game winddow's close (X) button.
+				// they probably expect that to stop the game, so let's ask the debugger to kill us.
+				cmdprintf("KILLME: 0");
+			}
 		}
 		break;
 	}
