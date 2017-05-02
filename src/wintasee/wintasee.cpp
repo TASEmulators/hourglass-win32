@@ -174,6 +174,7 @@ void ApplyWaitIntercepts();
 void ApplyFileIntercepts();
 void ApplyRegistryIntercepts();
 
+void ApplyMidiIntercepts();
 
 extern std::map<HWND, WNDPROC> hwndToOrigHandler;
 
@@ -1704,6 +1705,7 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 		ApplySyncIntercepts();
 		ApplyFileIntercepts();
 		ApplyRegistryIntercepts();
+		ApplyMidiIntercepts();
 
 		cmdprintf("GIMMEDLLLOADINFOS: 0");
 		UpdateLoadedOrUnloadedDllHooks();

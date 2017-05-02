@@ -88,6 +88,7 @@
 #include "opengltramps.h"
 #include "sdltramps.h"
 #include "soundtramps.h"
+#include "miditramps.h"
 
 #ifndef DEFINE_TRAMPS
 	// restore definition macros

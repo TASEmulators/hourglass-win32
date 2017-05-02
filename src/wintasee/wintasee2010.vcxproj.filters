@@ -88,6 +88,9 @@
     <ClCompile Include="hooks\windowhooks.cpp">
       <Filter>Source Files\hooks_and_tramps</Filter>
     </ClCompile>
+    <ClCompile Include="hooks\midihooks.cpp">
+      <Filter>Source Files\hooks_and_tramps</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dettime.h">
@@ -178,6 +181,9 @@
       <Filter>Source Files\hooks_and_tramps</Filter>
     </ClInclude>
     <ClInclude Include="tramps\windowtramps.h">
+      <Filter>Source Files\hooks_and_tramps</Filter>
+    </ClInclude>
+    <ClInclude Include="tramps\miditramps.h">
       <Filter>Source Files\hooks_and_tramps</Filter>
     </ClInclude>
   </ItemGroup>
