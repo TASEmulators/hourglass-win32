@@ -102,7 +102,7 @@ public:
 		// some games crash if the time is too bogus
 		// (e.g. BMD crashes when you press S to take a screenshot),
 		// so let's try making it slightly-less-bogus.
-		uli.QuadPart |= ULONGLONG(0x100000000000000); // I guess this is January 18th or something?
+		uli.QuadPart |= ULONGLONG(0x200000000000000); // I guess this is January 18th or something?	0x100000000000000->0x200000000000000
 
 		FILETIME filetime;
 		filetime.dwLowDateTime = uli.LowPart;
@@ -536,7 +536,7 @@ public:
 		// some games crash if the time is too bogus
 		// (e.g. BMD crashes when you press S to take a screenshot),
 		// so let's try making it slightly-less-bogus.
-		uli.QuadPart |= ULONGLONG(0x100000000000000); // I guess this is January 18th or something?
+		uli.QuadPart |= ULONGLONG(0x200000000000000); // I guess this is January 18th or something?	0x100000000000000->0x200000000000000
 
 		FILETIME filetime;
 		filetime.dwLowDateTime = uli.LowPart;

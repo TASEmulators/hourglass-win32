@@ -46,6 +46,9 @@
 #include <msacm.h>
 #pragma comment(lib, "msacm32.lib")
 
+#include <shlwapi.h>
+#pragma comment(lib, "shlwapi.lib")
+
 #include "../external/ddraw.h"
 #include "../shared/logcat.h"
 #include "../shared/ipc.h"
@@ -1671,6 +1674,21 @@ void SaveGameStatePhase2(int slot)
 //		static void* lpMem2 = 0;
 //		debugprintf("FOOOO: 0x%X,  0x%X\n", &lpMem, &lpMem2);
 		int totalSize = 0;
+
+		//open savestate file.
+		char exepath[MAX_PATH];
+		GetModuleFileName(NULL, exepath,MAX_PATH/sizeof(char));
+		PathRemoveFileSpec(exepath);
+		SetCurrentDirectory(exepath);
+
+		char filename[16];
+		sprintf(filename,"State%d.state",slot);
+		HANDLE hFile = CreateFile(filename, GENERIC_WRITE, 0, NULL,CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		if(hFile == INVALID_HANDLE_VALUE){
+			verbosedebugprintf("WARNING: couldn't open savestate file%d\n",slot);
+			return;
+		}
+
 		while (lpMem < si.lpMaximumApplicationAddress)
 		{
 			VirtualQueryEx(hGameProcess,lpMem,&mbi,sizeof(MEMORY_BASIC_INFORMATION));
@@ -1702,6 +1720,15 @@ void SaveGameStatePhase2(int slot)
 				&& WriteProcessMemory(hGameProcess, mbi.BaseAddress, region.data, 1, &bytesRead) // (testing it here speeds up saves)
 				&& ReadProcessMemory(hGameProcess, mbi.BaseAddress, region.data, mbi.RegionSize, &bytesRead))
 				{
+					int size = region.info.RegionSize;
+					DWORD written;
+					WriteFile(hFile, &size, sizeof(size), &written, NULL);
+					WriteFile(hFile, region.data, size, &written, NULL);
+					//don't include region.data in memory.
+					delete[] region.data;
+					region.data = new unsigned char[16];	//0xFFFFFFFFFFFFFFFF
+					sprintf((char *)region.data,"%x",mbi.BaseAddress);	//write dummy data.
+
 					region.dataHandle = FindMatchingDataBlock(region);
 					if(region.dataHandle)
 					{
@@ -1753,6 +1780,8 @@ void SaveGameStatePhase2(int slot)
 //				totalSize += mbi.RegionSize;
 			}
 		}
+		CloseHandle(hFile);
+		SetCurrentDirectory(thisprocessPath);
 //		debugprintf("MEM: END (%d == %gkb == %gMB)\n", totalSize, totalSize/1024.0f, totalSize/1024.0f/1024.0f);
 	}
 
@@ -2036,9 +2065,29 @@ void LoadGameStatePhase2(int slot)
 
 		// load all the memory (instant brain transplant)
 		{
+			//open savestate file.
+			char exepath[MAX_PATH];
+			GetModuleFileName(NULL, exepath,MAX_PATH/sizeof(char));
+			PathRemoveFileSpec(exepath);
+			SetCurrentDirectory(exepath);
+
+			char filename[16];
+			sprintf(filename,"State%d.state",slot);
+			HANDLE hFile = CreateFile(filename,GENERIC_READ,0,NULL,OPEN_EXISTING ,FILE_ATTRIBUTE_NORMAL,NULL);
+			if(hFile == INVALID_HANDLE_VALUE){
+				verbosedebugprintf("WARNING: couldn't open savestate file%d\n",slot);
+				return;
+			}
+
 			for(unsigned int i = 0; i < state.memory.size(); i++)
 			{
 				SaveState::MemoryRegion region = state.memory[i];
+
+				int regionsize;
+				DWORD read;
+				ReadFile(hFile, &regionsize, 4, &read, NULL);
+				unsigned char* regiondata = new unsigned char[regionsize];
+				ReadFile(hFile, regiondata, regionsize, &read, NULL);
 
 				MEMORY_BASIC_INFORMATION mbi = region.info;
 
@@ -2082,13 +2131,18 @@ void LoadGameStatePhase2(int slot)
 					debugprintf("FAILED TO PROTECT MEMORY REGION: BaseAddress=0x%08X, RegionSize=0x%X, LastError=0x%X\n", mbi.BaseAddress, mbi.RegionSize, GetLastError());
 
 				SIZE_T bytesWritten = 0;
-				BOOL writeResult = WriteProcessMemory(hGameProcess, mbi.BaseAddress, region.data, mbi.RegionSize, &bytesWritten);
+				//BOOL writeResult = WriteProcessMemory(hGameProcess, mbi.BaseAddress, region.data, mbi.RegionSize, &bytesWritten);
+				BOOL writeResult = WriteProcessMemory(hGameProcess, mbi.BaseAddress, regiondata, mbi.RegionSize, &bytesWritten);
 				if(!writeResult )//&& !(mbi.Type & MEM_IMAGE))
 					debugprintf("FAILED TO WRITE MEMORY REGION: BaseAddress=0x%08X, RegionSize=0x%X, LastError=0x%X\n", mbi.BaseAddress, mbi.RegionSize, GetLastError());
 
 				if(mbi.Protect & PAGE_GUARD)
 					VirtualProtectEx(hGameProcess, mbi.BaseAddress, mbi.RegionSize, mbi.Protect, &dwOldProtect); 
+
+				delete[] regiondata;
 			}
+			CloseHandle(hFile);
+			SetCurrentDirectory(thisprocessPath);
 		}
 
 //		debugprintallmemory("AFTERLOAD");
