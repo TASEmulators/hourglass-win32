@@ -180,11 +180,11 @@ HOOKFUNC MMRESULT WINAPI MymidiOutOpen(  LPHMIDIOUT phmo,  UINT uDeviceID,  DWOR
 
 		debugprintf ("midiOutOpen, starting output!\n");
 		char name[32];
-		sprintf (name, "%03imidilog.txt", numopen++);
+		sprintf (name, "midilog.txt", numopen++);
 		MidiHandler *h = new MidiHandler();
 		h->fcnproc = callbacktype == CALLBACK_NULL ? NULL : (void (CALLBACK *) (HMIDIOUT, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR)) dwCallback;
 		h->userdata = dwInstance;
-		h->output = fopen (name, "w");
+		h->output = fopen (name, "a");
 		h->deadbeef = 0xdeadbeef;
 		fprintf (h->output, "%d,Starting output\n", detTimer.GetTicks());
 		if (h->fcnproc)
