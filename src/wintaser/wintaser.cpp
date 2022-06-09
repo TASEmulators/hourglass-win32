@@ -4200,6 +4200,12 @@ void WriteAVIFrame(void* remotePixels, int width, int height, int pitch, int bpp
 	if(fps <= 0)
 		fps = 60;
 
+	// DIB spec only demands that bitmap _pitch_ is mod 4
+	// but even then some codecs break if _width_ is not mod 4 too
+	// so round it up to the nearest multiple of 4
+	int mod = 4;
+	width = ((width + mod - 1) / mod) * mod;
+
 	if(!aviFile || !aviCompressedStream || curAviWidth != width || curAviHeight != height || curAviFps != fps)
 	{
 		if(aviFile)
